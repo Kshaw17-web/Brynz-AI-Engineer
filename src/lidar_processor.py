@@ -124,12 +124,12 @@ class LiDARProcessor:
                 cx = K_rgb[0, 2] * DEPTH_SCALE_X
                 cy = K_rgb[1, 2] * DEPTH_SCALE_Y
 
-            # Unproject + transform to world
+            # Unproject + transform to world (use float32 throughout to limit RAM)
             pts_cam = self._unproject(depth_m, fx, fy, cx, cy, mask)
-            R = self._quat_to_rot(pose["qx"], pose["qy"], pose["qz"], pose["qw"])
-            t = np.array([pose["x"], pose["y"], pose["z"]])
-            pts_world = (R @ pts_cam.T).T + t
-            all_pts.append(pts_world.astype(np.float32))
+            R = self._quat_to_rot(pose["qx"], pose["qy"], pose["qz"], pose["qw"]).astype(np.float32)
+            t = np.array([pose["x"], pose["y"], pose["z"]], dtype=np.float32)
+            pts_world = pts_cam @ R.T + t   # (N,3) @ (3,3) in float32, no transpose copy
+            all_pts.append(pts_world)
 
             # Colour
             if frame_idx in rgb_frames:
@@ -158,7 +158,11 @@ class LiDARProcessor:
         # Gravity alignment from IMU
         R_grav = self._compute_gravity_alignment()
         if R_grav is not None:
-            xyz = (R_grav @ xyz.T).T.astype(np.float32)
+            # Use float32 rotation (avoids ~350MB float64 intermediate on large clouds)
+            R32 = R_grav.astype(np.float32)
+            chunk = 1_000_000
+            for i in range(0, len(xyz), chunk):
+                xyz[i:i+chunk] = (R32 @ xyz[i:i+chunk].T).T
             logger.info(
                 f"  After gravity alignment Y: [{xyz[:,1].min():.3f}, {xyz[:,1].max():.3f}] m"
             )
@@ -277,23 +281,32 @@ class LiDARProcessor:
         logger.debug(f"Loaded {len(poses)} poses")
         return poses
 
-    def _load_rgb_frames(self) -> Dict[int, np.ndarray]:
-        """Load every frame_skip-th RGB frame from video."""
+    def _load_rgb_frames(self, max_frames: int = 200) -> Dict[int, np.ndarray]:
+        """
+        Load RGB frames from video with memory cap.
+        Only loads 1 in 5 of the already-subsampled frames, up to max_frames total.
+        This prevents OOM on long scans (e.g., 5251-frame datasets).
+        """
         frames = {}
         vp = self.input_path / "rgb.mp4"
         if not vp.exists():
             return frames
-        cap = cv2.VideoCapture(str(vp))
-        fi = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            if fi % self.frame_skip == 0:
-                frames[fi] = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            fi += 1
-        cap.release()
-        logger.debug(f"Loaded {len(frames)} RGB frames")
+        try:
+            cap = cv2.VideoCapture(str(vp))
+            fi = 0
+            rgb_skip = max(self.frame_skip * 5, 1)  # load 1 per 5 depth frames
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                if fi % rgb_skip == 0 and len(frames) < max_frames:
+                    frames[fi] = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                fi += 1
+            cap.release()
+        except Exception as e:
+            logger.warning(f"RGB video load failed: {e}. Continuing without colour.")
+            frames = {}
+        logger.debug(f"Loaded {len(frames)} RGB frames (cap={max_frames})")
         return frames
 
     def _unproject(self, depth_m, fx, fy, cx, cy, mask) -> np.ndarray:

@@ -73,6 +73,18 @@ class RoomScanPipeline:
         geometry = geom_extractor.extract(point_cloud)
         self._print_geometry(geometry)
 
+        # Debug visualizations (best-effort)
+        try:
+            from .debug_visualizer import render_debug
+            from .lidar_processor import LiDARProcessor
+            _proc = LiDARProcessor(self.input_path, frame_skip=self.frame_skip)
+            _poses = _proc._load_odometry()
+            render_debug(point_cloud["xyz"], geometry, _poses,
+                         self.output_path / "debug",
+                         tag=self.input_path.name)
+        except Exception as _e:
+            logger.debug(f"Debug visualizer skipped: {_e}")
+
         print("[3/6] Rendering floor plan...")
         renderer = FloorPlanRenderer(output_path=self.output_path, room_id=self.room_id)
         floor_plan_path = renderer.render(geometry)
@@ -134,10 +146,12 @@ class RoomScanPipeline:
 
     def _print_geometry(self, geometry: Dict):
         g = geometry
-        print(f"      Floor area:     {g['floor_area_m2']:.2f} ± {g['floor_area_ci_m2']:.2f} m²")
-        print(f"      Ceiling height: {g['ceiling_height_m']:.3f} ± {g['ceiling_height_ci_m']:.3f} m")
+        src = g.get('floor_area_source', '?')
+        print(f"      Floor area:     {g['floor_area_m2']:.2f} ± {g['floor_area_ci_m2']:.2f} m²  (source: {src})")
+        print(f"      Ceiling height: {g['ceiling_height_m']:.3f} ± {g['ceiling_height_ci_m']:.3f} m  (reliable: {g.get('ceiling_detection_reliable','?')})")
+        print(f"      Room polygon:   {g.get('room_perimeter_m',0):.2f} m perimeter")
         print(f"      Walls detected: {len(g['walls'])}")
-        print(f"      Openings:       {len(g['openings'])}")
+        print(f"      Openings:       {len(g['openings'])} (conservative)")
 
     def _write_outputs(self, result: Dict):
         # JSON report
