@@ -1,0 +1,43 @@
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+*.so
+.venv/
+venv/
+env/
+.env
+
+# Large data files (tracked by Git LFS or fetched separately)
+*.mp4
+depth/
+confidence/
+*.ply
+*.pcd
+
+# Model weights (fetched by script)
+models/
+weights/
+*.pt
+*.pth
+*.onnx
+
+# Outputs (reproducible)
+outputs/
+results/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/

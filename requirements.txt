@@ -1,0 +1,13 @@
+numpy>=1.24
+scipy>=1.10
+opencv-python>=4.8
+matplotlib>=3.7
+open3d>=0.17
+Pillow>=10.0
+shapely>=2.0
+scikit-learn>=1.3
+tqdm>=4.65
+ultralytics>=8.0  # YOLOv8 for damage detection
+huggingface_hub>=0.19  # For model downloads
+torch>=2.0  # Required for depth models (CPU works, GPU recommended)
+torchvision>=0.15

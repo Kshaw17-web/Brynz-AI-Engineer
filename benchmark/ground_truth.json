@@ -1,0 +1,34 @@
+{
+  "_comment": "Ground truth measurements from laser measurer. Fill in actual values after measuring.",
+  "_instructions": "Measure each room with a laser measurer and fill in the values below.",
+  "scans": {
+    "single_room": {
+      "_description": "Single room scan (LiDAR only)",
+      "ceiling_height_m": null,
+      "floor_area_m2": null,
+      "walls": [
+        {"id": "wall_N", "length_m": null, "label": "North wall"},
+        {"id": "wall_S", "length_m": null, "label": "South wall"},
+        {"id": "wall_E", "length_m": null, "label": "East wall"},
+        {"id": "wall_W", "length_m": null, "label": "West wall"}
+      ],
+      "openings": [
+        {"id": "door_1", "type": "door", "width_m": null, "height_m": null, "label": "Main door"}
+      ]
+    },
+    "single_scan_floor_only": {
+      "_description": "Single room scan without ceiling data",
+      "ceiling_height_m": null,
+      "floor_area_m2": null,
+      "walls": [],
+      "openings": []
+    },
+    "single_scan_with_ceiling": {
+      "_description": "Single room scan with ceiling data",
+      "ceiling_height_m": null,
+      "floor_area_m2": null,
+      "walls": [],
+      "openings": []
+    }
+  }
+}
