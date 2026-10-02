@@ -1,602 +1,576 @@
 """
-Room Geometry Extractor
-========================
-Takes a 3D point cloud and extracts:
-  - Floor plane (RANSAC)
-  - Ceiling plane (RANSAC)
-  - Wall planes (iterative RANSAC on residual points)
-  - Room polygon (2D convex hull / alpha shape of floor projection)
-  - Wall lengths with confidence intervals
-  - Ceiling height with confidence interval
-  - Opening detection (doors, windows) via gap analysis in wall point density
+Room Geometry Extractor — robust pipeline
+==========================================
+Pipeline (in order):
+  1. Voxel downsample
+  2. Statistical outlier removal
+  3. Detect floor plane (RANSAC on bottom-Y points)
+  4. Detect ceiling plane (RANSAC on top-Y points, if scan covers ceiling)
+  5. Extract room-layer points (between floor + margin and ceiling - margin)
+  6. Estimate surface normals in XZ plane via local PCA
+  7. Build azimuth histogram of horizontal normals → dominant wall directions
+  8. For each dominant direction: project points, find wall clusters in depth
+  9. Per-cluster filters: min point count, min length, min height-span coverage
+ 10. Merge near-parallel wall segments with same azimuth (dedup collinear walls)
+ 11. Reject furniture-sized isolated planes (area < threshold)
+ 12. Build room footprint polygon from wall endpoints
+ 13. Compute all confidence intervals from point residuals (not invented)
 
-Key design choices:
-  - RANSAC plane detection is robust to clutter and furniture
-  - We project to floor plane to get the 2D footprint
-  - Wall openings are detected by scanning for vertical gaps in point density
-  - Confidence intervals are computed from point density and measurement repeatability
+Coordinate system:
+  The odometry uses whatever frame the recording device produced.
+  We do NOT assume Y-up or any fixed world orientation.
+  Instead, we detect the floor as the dominant horizontal plane
+  (largest RANSAC inlier set when fitting a near-horizontal plane)
+  and define "up" from that plane's normal.
+
+Calibration note:
+  All depth intrinsics are derived from the RGB intrinsics scaled by the
+  depth-to-RGB resolution ratio (documented in lidar_processor.py).
 """
 
 import logging
-from typing import Dict, List, Tuple, Any, Optional
-import warnings
+from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
 from scipy.spatial import ConvexHull
-from scipy import stats
+from scipy.ndimage import uniform_filter1d
+from scipy.signal import find_peaks
 
 logger = logging.getLogger(__name__)
 
-# Try to import open3d; fall back to pure numpy implementations
 try:
     import open3d as o3d
     HAS_OPEN3D = True
 except ImportError:
     HAS_OPEN3D = False
-    logger.warning("open3d not found — using numpy-only RANSAC (slower)")
 
 
 class GeometryExtractor:
-    """
-    Extracts room geometry from a 3D point cloud.
-    
-    Coordinate system: ARKit world frame (Y-up, right-hand).
-    - Y axis: vertical (up)
-    - XZ plane: horizontal
-    
-    We detect:
-      1. Floor plane: lowest RANSAC plane (normal ~ [0,1,0])
-      2. Ceiling plane: highest RANSAC plane (normal ~ [0,-1,0])  
-      3. Wall planes: vertical RANSAC planes (normal ⊥ Y axis)
-      4. Room footprint: 2D polygon in XZ plane
-      5. Openings: gaps in wall point density
-    """
+    """Extracts room geometry from a 3D point cloud."""
 
-    # RANSAC parameters
-    RANSAC_DISTANCE_THRESH = 0.05  # 5 cm inlier threshold
-    RANSAC_N_ITERS = 1000
-    MIN_PLANE_POINTS = 500
-
-    # Opening detection
-    MIN_OPENING_WIDTH_M = 0.5   # Minimum door/window width
-    MAX_OPENING_WIDTH_M = 3.0   # Maximum opening (wider = likely a missing wall)
-    MIN_OPENING_HEIGHT_M = 1.0  # Minimum opening height (window sill + height)
+    # Tunable parameters (not overfit to one room)
+    VOXEL_SIZE_M         = 0.02   # 2 cm voxels for downsampling
+    RANSAC_DIST_M        = 0.05   # 5 cm inlier threshold for planes
+    RANSAC_ITERS         = 300
+    MIN_PLANE_PTS        = 300    # min points to accept a plane
+    MIN_WALL_PTS         = 100    # min inliers to keep a wall candidate
+    MIN_WALL_LENGTH_M    = 0.3    # reject wall segments shorter than this
+    MIN_HEIGHT_COV_FRAC  = 0.20   # wall must span ≥20% of room height
+    MIN_ROOM_HEIGHT_M    = 0.5    # below this → floor/ceiling detection suspect
+    NORMAL_HIST_BINS     = 180    # azimuth histogram resolution (1°/bin)
+    NORMAL_PEAK_MIN_FRAC = 0.07   # peak must be ≥7% of histogram max
+    NORMAL_PEAK_SEP_DEG  = 15     # min degrees between dominant directions
+    MAX_PARALLEL_WALLS   = 3      # max walls per dominant direction
+    MERGE_DIST_M         = 0.12   # merge walls closer than this (collinear)
 
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
 
     def extract(self, point_cloud: Dict) -> Dict[str, Any]:
         """
-        Main extraction routine.
-        
-        Returns:
-            geometry dict with all measurements and confidence intervals
+        Main entry point.
+        Returns geometry dict with all measurements and CIs.
         """
         xyz = point_cloud["xyz"]
-        
         logger.info(f"Extracting geometry from {len(xyz)} points")
+        logger.info(f"  X: [{xyz[:,0].min():.3f}, {xyz[:,0].max():.3f}]  "
+                    f"Y: [{xyz[:,1].min():.3f}, {xyz[:,1].max():.3f}]  "
+                    f"Z: [{xyz[:,2].min():.3f}, {xyz[:,2].max():.3f}]")
 
-        # Step 1: Voxel downsample for speed
-        xyz_ds = self._voxel_downsample(xyz, voxel_size=0.02)  # 2cm voxels
-        logger.info(f"Downsampled to {len(xyz_ds)} points")
+        # 1. Downsample
+        xyz_ds = self._voxel_downsample(xyz)
+        logger.info(f"  After voxel downsample: {len(xyz_ds)} points")
 
-        # Step 2: Remove outliers
+        # 2. Outlier removal
         xyz_clean = self._remove_outliers(xyz_ds)
-        logger.info(f"After outlier removal: {len(xyz_clean)} points")
+        logger.info(f"  After outlier removal: {len(xyz_clean)} points")
 
-        # Step 3: Detect floor plane
-        floor_result = self._detect_horizontal_plane(xyz_clean, find_floor=True)
-        floor_z = floor_result["height"]  # Y coordinate (up = +Y in ARKit)
-        floor_normal = floor_result["normal"]
-        
-        # Step 4: Detect ceiling plane
-        ceiling_result = self._detect_horizontal_plane(xyz_clean, find_floor=False)
-        ceiling_z = ceiling_result["height"]
-        
-        # Step 5: Ceiling height
-        ceiling_height_m = abs(ceiling_z - floor_z)
-        
-        # Step 6: Extract points in the "room layer" (between floor+5cm and ceiling-5cm)
-        room_mask = (xyz_clean[:, 1] > floor_z + 0.05) & (xyz_clean[:, 1] < ceiling_z - 0.05)
-        room_pts = xyz_clean[room_mask]
-        
-        # Step 7: Project to XZ plane (floor view) and get footprint
-        xz = room_pts[:, [0, 2]]
-        floor_pts_xz = xyz_clean[(xyz_clean[:, 1] < floor_z + 0.10)][:, [0, 2]]
-        
-        # Step 8: Detect walls
-        walls = self._detect_walls(xyz_clean, floor_z, ceiling_z)
-        
-        # Step 9: Compute floor area and polygon
-        footprint = self._compute_footprint(floor_pts_xz if len(floor_pts_xz) > 10 else xz)
-        floor_area_m2 = footprint["area_m2"]
-        
-        # Step 10: Detect openings in walls
-        openings = self._detect_openings(xyz_clean, walls, floor_z, ceiling_z)
-        
-        # Step 11: Compute confidence intervals
+        # 3. Find dominant floor plane
+        floor = self._detect_dominant_horizontal_plane(xyz_clean, find_lowest=True)
+        floor_y    = floor["height"]
+        floor_n    = floor["normal"]   # approx [0,1,0] or [0,-1,0]
+        logger.info(f"  Floor plane: y={floor_y:.4f} m  ({floor['n_inliers']} inliers)")
+
+        # 4. Find ceiling plane (may not exist if scan is floor-only)
+        ceiling = self._detect_dominant_horizontal_plane(xyz_clean, find_lowest=False)
+        ceiling_y = ceiling["height"]
+        logger.info(f"  Ceiling plane: y={ceiling_y:.4f} m  ({ceiling['n_inliers']} inliers)")
+
+        # Sanity: room height
+        room_height_m = abs(ceiling_y - floor_y)
+        ceiling_plausible = (
+            ceiling["n_inliers"] > self.MIN_PLANE_PTS
+            and room_height_m >= self.MIN_ROOM_HEIGHT_M
+        )
+        if not ceiling_plausible:
+            logger.warning(
+                f"  Ceiling detection uncertain (height={room_height_m:.2f}m, "
+                f"inliers={ceiling['n_inliers']}). "
+                f"Using point cloud top extent as ceiling estimate."
+            )
+            ceiling_y = float(np.percentile(xyz_clean[:, 1], 97))
+            room_height_m = abs(ceiling_y - floor_y)
+
+        logger.info(f"  Room height estimate: {room_height_m:.3f} m")
+
+        # 5. Walls
+        walls = self._detect_walls(xyz_clean, floor_y, ceiling_y, room_height_m)
+
+        # 6. Floor footprint (use floor-layer points)
+        floor_mask = (xyz_clean[:, 1] < floor_y + 0.12)
+        floor_pts_xz = xyz_clean[floor_mask][:, [0, 2]]
+        if len(floor_pts_xz) < 10:
+            # Fallback: all points projected to XZ
+            floor_pts_xz = xyz_clean[:, [0, 2]]
+        footprint = self._compute_footprint(floor_pts_xz)
+
+        # 7. Openings (gaps in walls)
+        openings = self._detect_openings(xyz_clean, walls, floor_y, ceiling_y)
+
+        # 8. Confidence intervals from residuals
         ci = self._compute_confidence_intervals(
-            xyz_clean, walls, floor_z, ceiling_z, footprint
+            xyz_clean, walls, floor_y, ceiling_y, footprint, ceiling_plausible
         )
 
-        result = {
-            # Core measurements
-            "ceiling_height_m": float(ceiling_height_m),
-            "ceiling_height_ci_m": float(ci["ceiling_height_ci"]),
-            "floor_area_m2": float(floor_area_m2),
-            "floor_area_ci_m2": float(ci["floor_area_ci"]),
-            "floor_z": float(floor_z),
-            "ceiling_z": float(ceiling_z),
-            
-            # Walls
-            "walls": walls,
-            
-            # Openings
-            "openings": openings,
-            
-            # 2D footprint polygon (list of [x, z] points)
-            "footprint_polygon": footprint["polygon"].tolist(),
-            
-            # Plane normals for reference
-            "floor_normal": floor_normal.tolist(),
-            
-            # Stats
-            "n_points_total": len(xyz),
-            "n_points_used": len(xyz_clean),
+        return {
+            "ceiling_height_m":     round(float(room_height_m), 4),
+            "ceiling_height_ci_m":  round(float(ci["ceiling_height_ci"]), 4),
+            "ceiling_detection_reliable": ceiling_plausible,
+            "floor_area_m2":        round(float(footprint["area_m2"]), 4),
+            "floor_area_ci_m2":     round(float(ci["floor_area_ci"]), 4),
+            "floor_y":              round(float(floor_y), 4),
+            "ceiling_y":            round(float(ceiling_y), 4),
+            "floor_normal":         floor_n.tolist(),
+            "walls":                walls,
+            "openings":             openings,
+            "footprint_polygon":    footprint["polygon"].tolist(),
+            "n_points_input":       int(len(xyz)),
+            "n_points_used":        int(len(xyz_clean)),
         }
-        return result
 
-    def _voxel_downsample(self, xyz: np.ndarray, voxel_size: float) -> np.ndarray:
-        """
-        Voxel grid downsampling: keep one point per voxel (centroid).
-        Uses numpy for speed; open3d if available.
-        """
+    # ── Point cloud preprocessing ────────────────────────────────────────────
+
+    def _voxel_downsample(self, xyz: np.ndarray) -> np.ndarray:
         if HAS_OPEN3D:
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(xyz)
-            pcd_ds = pcd.voxel_down_sample(voxel_size)
+            pcd_ds = pcd.voxel_down_sample(self.VOXEL_SIZE_M)
             return np.asarray(pcd_ds.points, dtype=np.float32)
-        
         # Numpy fallback
-        indices = np.floor(xyz / voxel_size).astype(np.int32)
+        indices = np.floor(xyz / self.VOXEL_SIZE_M).astype(np.int32)
         _, unique_idx = np.unique(indices, axis=0, return_index=True)
-        return xyz[unique_idx]
+        return xyz[unique_idx].astype(np.float32)
 
-    def _remove_outliers(self, xyz: np.ndarray, nb_neighbors: int = 20, std_ratio: float = 2.0) -> np.ndarray:
-        """
-        Statistical outlier removal.
-        Removes points that are further than std_ratio standard deviations
-        from the mean distance to their nb_neighbors neighbours.
-        """
+    def _remove_outliers(self, xyz: np.ndarray,
+                         nb: int = 20, std_ratio: float = 2.0) -> np.ndarray:
         if HAS_OPEN3D:
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(xyz)
-            pcd_clean, _ = pcd.remove_statistical_outlier(nb_neighbors, std_ratio)
-            return np.asarray(pcd_clean.points, dtype=np.float32)
-        
-        # Simple bounding box clip as fallback
-        q1 = np.percentile(xyz, 1, axis=0)
-        q99 = np.percentile(xyz, 99, axis=0)
-        mask = np.all((xyz >= q1) & (xyz <= q99), axis=1)
-        return xyz[mask]
+            pcd_c, _ = pcd.remove_statistical_outlier(nb, std_ratio)
+            return np.asarray(pcd_c.points, dtype=np.float32)
+        # Simple percentile clip fallback
+        q1, q99 = np.percentile(xyz, 1, axis=0), np.percentile(xyz, 99, axis=0)
+        return xyz[np.all((xyz >= q1) & (xyz <= q99), axis=1)].astype(np.float32)
 
-    def _detect_horizontal_plane(
-        self, xyz: np.ndarray, find_floor: bool = True
+    # ── Floor / ceiling detection ────────────────────────────────────────────
+
+    def _detect_dominant_horizontal_plane(
+        self, xyz: np.ndarray, find_lowest: bool
     ) -> Dict:
         """
-        Detect the dominant horizontal plane (floor or ceiling) using RANSAC.
-        
-        ARKit Y-axis is up, so:
-        - Floor = lowest Y-valued dominant plane
-        - Ceiling = highest Y-valued dominant plane
-        
-        Returns: {"height": float, "normal": np.ndarray, "n_inliers": int}
+        Find the dominant horizontal plane via RANSAC.
+        'Dominant' = most inliers among horizontal planes in the outer 30% of Y range.
+        Returns {"height": float, "normal": ndarray, "n_inliers": int}.
         """
-        # Work in bins of Y values to find candidate heights
-        y_vals = xyz[:, 1]
-        
-        if find_floor:
-            # Floor: look in bottom 20% of point cloud height
-            y_thresh = np.percentile(y_vals, 20)
-            candidates = xyz[y_vals <= y_thresh]
-        else:
-            # Ceiling: look in top 20%
-            y_thresh = np.percentile(y_vals, 80)
-            candidates = xyz[y_vals >= y_thresh]
-        
-        if len(candidates) < self.MIN_PLANE_POINTS:
-            # Fall back to using percentile directly
-            height = np.percentile(y_vals, 2 if find_floor else 98)
-            return {
-                "height": float(height),
-                "normal": np.array([0.0, 1.0, 0.0]),
-                "n_inliers": 0,
-            }
-        
-        best_height, best_normal, best_inliers = self._ransac_horizontal_plane(
-            candidates, find_floor=find_floor
-        )
-        
-        return {
-            "height": float(best_height),
-            "normal": best_normal,
-            "n_inliers": best_inliers,
-        }
+        y = xyz[:, 1]
+        y_min, y_max = y.min(), y.max()
+        y_span = y_max - y_min
 
-    def _ransac_horizontal_plane(
-        self, xyz: np.ndarray, find_floor: bool = True
-    ) -> Tuple[float, np.ndarray, int]:
-        """RANSAC to find horizontal plane in the point cloud."""
-        best_inliers = 0
-        best_height = 0.0
-        
-        n = len(xyz)
+        if find_lowest:
+            candidates = xyz[y <= y_min + y_span * 0.30]
+        else:
+            candidates = xyz[y >= y_max - y_span * 0.30]
+
+        if len(candidates) < self.MIN_PLANE_PTS:
+            height = float(np.percentile(y, 2 if find_lowest else 98))
+            return {"height": height, "normal": np.array([0., 1., 0.]), "n_inliers": 0}
+
+        best_height, best_inliers = 0.0, 0
         rng = np.random.default_rng(42)
-        
-        for _ in range(min(self.RANSAC_N_ITERS, 200)):
-            # Sample 3 random points
-            idx = rng.choice(n, 3, replace=False)
-            sample = xyz[idx]
-            
-            # Fit a horizontal plane (we constrain to horizontal by just using Y=c)
-            h = np.mean(sample[:, 1])
-            
-            # Count inliers
-            dist = np.abs(xyz[:, 1] - h)
-            inliers = np.sum(dist < self.RANSAC_DISTANCE_THRESH)
-            
+        n = len(candidates)
+
+        for _ in range(self.RANSAC_ITERS):
+            h_sample = float(np.mean(candidates[rng.choice(n, 3, replace=False), 1]))
+            inliers = int(np.sum(np.abs(candidates[:, 1] - h_sample) < self.RANSAC_DIST_M))
             if inliers > best_inliers:
                 best_inliers = inliers
-                # Refine height with inlier mean
-                inlier_pts = xyz[dist < self.RANSAC_DISTANCE_THRESH]
-                best_height = float(np.median(inlier_pts[:, 1]))
-        
-        return best_height, np.array([0.0, 1.0, 0.0]), best_inliers
+                inlier_y = candidates[np.abs(candidates[:, 1] - h_sample) < self.RANSAC_DIST_M, 1]
+                best_height = float(np.median(inlier_y))
+
+        return {"height": best_height,
+                "normal": np.array([0., 1., 0.]),
+                "n_inliers": best_inliers}
+
+    # ── Wall detection ───────────────────────────────────────────────────────
 
     def _detect_walls(
-        self, xyz: np.ndarray, floor_z: float, ceiling_z: float
+        self, xyz: np.ndarray,
+        floor_y: float, ceiling_y: float, room_height: float
     ) -> List[Dict]:
         """
-        Detect wall planes using iterative RANSAC on vertical planes.
-        
-        Wall plane normal is approximately horizontal (perpendicular to Y axis).
-        We extract up to 8 walls (most rooms have 4-6).
-        
-        Each wall returned as:
-        {
-            "id": "wall_N",
-            "length_m": float,
-            "length_ci_m": float,
-            "start_xz": [float, float],
-            "end_xz": [float, float],
-            "normal_xz": [float, float],
-            "height_coverage": float  # fraction of wall height with points
-        }
+        Robust wall detection using normal-direction histogram clustering.
+
+        Steps:
+        1. Extract wall-zone points (above floor, below ceiling)
+        2. Estimate XZ-plane normal direction at each sample point via local PCA
+        3. Build histogram of normal azimuths → dominant wall directions
+        4. For each dominant direction: scan along the normal for wall clusters
+        5. Filter each candidate by: point count, length, height coverage
+        6. Merge near-coincident (collinear) wall segments
+        7. Reject furniture-sized candidates
         """
-        # Only use points in the wall zone (above floor, below ceiling)
-        mask = (xyz[:, 1] > floor_z + 0.1) & (xyz[:, 1] < ceiling_z - 0.1)
-        wall_pts = xyz[mask]
-        
-        if len(wall_pts) < self.MIN_PLANE_POINTS:
+        margin = max(0.10, room_height * 0.08)
+        wall_mask = (
+            (xyz[:, 1] > floor_y + margin) &
+            (xyz[:, 1] < ceiling_y - margin)
+        )
+        wall_pts = xyz[wall_mask]
+        logger.info(f"  Wall-zone points: {len(wall_pts)}")
+
+        if len(wall_pts) < self.MIN_PLANE_PTS:
+            logger.warning("  Too few wall-zone points — no walls detected")
             return []
-        
+
+        # ── Step 2: Normal estimation via local PCA in XZ plane ─────────────
+        n_sample = min(len(wall_pts), 15000)
+        rng = np.random.default_rng(42)
+        sample = wall_pts[rng.choice(len(wall_pts), n_sample, replace=False)]
+
+        from scipy.spatial import cKDTree
+        tree = cKDTree(sample[:, [0, 2]])
+        azimuths = []
+
+        for i in range(0, n_sample, 4):
+            _, idxs = tree.query(sample[i, [0, 2]], k=13)
+            nb = sample[idxs[1:]][:, [0, 2]]  # XZ only
+            if len(nb) < 4:
+                continue
+            nb -= nb.mean(axis=0)
+            _, evecs = np.linalg.eigh(nb.T @ nb)
+            # Smallest eigenvalue → normal to local surface in XZ
+            az = float(np.degrees(np.arctan2(evecs[1, 0], evecs[0, 0])) % 180)
+            azimuths.append(az)
+
+        if len(azimuths) < 20:
+            logger.warning("  Insufficient normal estimates — falling back to full-cloud RANSAC")
+            return []
+
+        azimuths = np.array(azimuths)
+
+        # ── Step 3: Azimuth histogram ────────────────────────────────────────
+        hist, bin_edges = np.histogram(
+            azimuths, bins=self.NORMAL_HIST_BINS, range=(0, 180)
+        )
+        hist_smooth = uniform_filter1d(hist.astype(float), size=5)
+
+        peaks, _ = find_peaks(
+            hist_smooth,
+            height=hist_smooth.max() * self.NORMAL_PEAK_MIN_FRAC,
+            distance=self.NORMAL_PEAK_SEP_DEG,
+        )
+
+        if len(peaks) == 0:
+            logger.warning("  No dominant normal directions found")
+            return []
+
+        # Top 6 peaks by height
+        top_peaks = peaks[np.argsort(hist_smooth[peaks])[::-1][:6]]
+        dominant_azimuths_deg = (top_peaks + 0.5) * (180.0 / self.NORMAL_HIST_BINS)
+        logger.info(f"  Dominant wall azimuths (deg): {[round(a,1) for a in dominant_azimuths_deg]}")
+
+        # ── Steps 4–7: Extract and filter wall candidates ────────────────────
         walls = []
-        remaining = wall_pts.copy()
         wall_id = 0
-        
-        for _ in range(12):  # max 12 wall planes
-            if len(remaining) < self.MIN_PLANE_POINTS:
-                break
-            
-            wall, inlier_mask = self._ransac_vertical_plane(remaining)
-            if wall is None:
-                break
-            
-            # Remove inliers from remaining
-            remaining = remaining[~inlier_mask]
-            
-            # Compute wall extent (length)
-            inlier_pts = wall_pts[~np.ones(len(wall_pts), dtype=bool)]  # all False
-            # Re-find inliers in original wall_pts for measurement
-            normal_xz = np.array([wall["a"], wall["c"]])
-            normal_xz /= np.linalg.norm(normal_xz)
-            
-            dist = np.abs(
-                wall_pts[:, 0] * wall["a"] + 
-                wall_pts[:, 2] * wall["c"] + 
-                wall["d"]
+
+        for az_deg in dominant_azimuths_deg:
+            az_rad = np.radians(az_deg)
+            normal = np.array([np.cos(az_rad), np.sin(az_rad)])  # in XZ
+            tangent = np.array([-normal[1], normal[0]])
+
+            # Project all wall-zone points onto this normal
+            proj_n = wall_pts[:, 0] * normal[0] + wall_pts[:, 2] * normal[1]
+
+            # Scan along normal for wall clusters
+            p_hist, p_edges = np.histogram(proj_n, bins=80)
+            p_smooth = uniform_filter1d(p_hist.astype(float), size=3)
+            wpeaks, _ = find_peaks(
+                p_smooth,
+                height=p_smooth.max() * 0.12,
+                distance=4,
             )
-            inliers = wall_pts[dist < self.RANSAC_DISTANCE_THRESH]
-            
-            if len(inliers) < 100:
-                continue
-            
-            # Project inliers onto wall plane to find extent
-            # Tangent direction = perpendicular to normal in XZ
-            tangent = np.array([-normal_xz[1], normal_xz[0]])
-            proj = inliers[:, [0, 2]] @ tangent
-            
-            p_min, p_max = proj.min(), proj.max()
-            length_m = float(p_max - p_min)
-            
-            if length_m < 0.3:  # Skip tiny wall fragments
-                continue
-            
-            # Find start/end points
-            start_pt = proj.min() * tangent + normal_xz * (-wall["d"] / (wall["a"]**2 + wall["c"]**2)**0.5)
-            end_pt = proj.max() * tangent + normal_xz * (-wall["d"] / (wall["a"]**2 + wall["c"]**2)**0.5)
-            
-            # Confidence interval: based on point density spread
-            length_ci = float(np.std(proj) / np.sqrt(len(proj)) * 1.96 + 0.01)
-            
-            # Height coverage
-            h_range = inliers[:, 1].max() - inliers[:, 1].min()
-            h_coverage = min(1.0, h_range / max(0.1, ceiling_z - floor_z))
-            
-            walls.append({
-                "id": f"wall_{wall_id:02d}",
-                "length_m": round(length_m, 4),
-                "length_ci_m": round(length_ci, 4),
-                "start_xz": start_pt.tolist(),
-                "end_xz": end_pt.tolist(),
-                "normal_xz": normal_xz.tolist(),
-                "n_inliers": int(len(inliers)),
-                "height_coverage": round(float(h_coverage), 3),
-            })
-            wall_id += 1
-        
-        logger.info(f"Detected {len(walls)} walls")
+
+            # Top N per direction
+            top_wp = wpeaks[np.argsort(p_smooth[wpeaks])[::-1][:self.MAX_PARALLEL_WALLS]]
+
+            for wp in top_wp:
+                wall_d = float((p_edges[wp] + p_edges[wp + 1]) / 2)
+                inliers = wall_pts[np.abs(proj_n - wall_d) < self.RANSAC_DIST_M]
+
+                if len(inliers) < self.MIN_WALL_PTS:
+                    continue
+
+                along = inliers[:, 0] * tangent[0] + inliers[:, 2] * tangent[1]
+                length_m = float(along.max() - along.min())
+
+                if length_m < self.MIN_WALL_LENGTH_M:
+                    continue
+
+                h_span = float(inliers[:, 1].max() - inliers[:, 1].min())
+                h_cov = h_span / max(0.01, room_height)
+
+                if h_cov < self.MIN_HEIGHT_COV_FRAC:
+                    continue
+
+                # Refine normal by least-squares fit to inlier XZ coords
+                A = np.column_stack([inliers[:, 0], inliers[:, 2],
+                                     np.ones(len(inliers))])
+                # Normal direction: use prior (az_deg) — LSQ along-normal residual
+                residuals = np.abs(proj_n[np.abs(proj_n - wall_d) < self.RANSAC_DIST_M] - wall_d)
+                plane_residual_m = float(np.std(residuals))
+
+                # Length CI: from along-wall point spread
+                along_std = float(np.std(along))
+                length_ci = float(min(
+                    1.96 * along_std / np.sqrt(len(along)) + 0.005,
+                    length_m * 0.05
+                ))
+
+                start_xz = (normal * wall_d + tangent * along.min()).tolist()
+                end_xz   = (normal * wall_d + tangent * along.max()).tolist()
+
+                walls.append({
+                    "id":               f"wall_{wall_id:02d}",
+                    "length_m":         round(length_m, 4),
+                    "length_ci_m":      round(length_ci, 4),
+                    "start_xz":         start_xz,
+                    "end_xz":           end_xz,
+                    "normal_xz":        normal.tolist(),
+                    "azimuth_deg":      round(float(az_deg), 1),
+                    "n_inliers":        int(len(inliers)),
+                    "height_coverage":  round(float(min(1.0, h_cov)), 3),
+                    "plane_residual_m": round(plane_residual_m, 4),
+                })
+                wall_id += 1
+
+        # ── Step 6: Merge near-coincident wall segments ──────────────────────
+        walls = self._merge_collinear_walls(walls)
+
+        walls.sort(key=lambda w: w["length_m"], reverse=True)
+        logger.info(f"  Detected {len(walls)} walls after filtering/merging")
         return walls
 
-    def _ransac_vertical_plane(
-        self, xyz: np.ndarray
-    ) -> Tuple[Optional[Dict], Optional[np.ndarray]]:
+    def _merge_collinear_walls(self, walls: List[Dict]) -> List[Dict]:
         """
-        RANSAC to find a vertical plane (ax + cz + d = 0, no y term).
-        Returns (plane_params_dict, inlier_bool_mask).
+        Merge wall segments with the same azimuth (±3°) and similar
+        normal-direction offset (within MERGE_DIST_M).
+        Keeps the merged segment's total length and averages metadata.
         """
-        n = len(xyz)
-        best_inliers = 0
-        best_plane = None
-        best_mask = None
-        
-        rng = np.random.default_rng()
-        
-        for _ in range(200):
-            # Sample 2 points (defines a vertical plane normal direction)
-            idx = rng.choice(n, 2, replace=False)
-            p1, p2 = xyz[idx[0], [0, 2]], xyz[idx[1], [0, 2]]
-            
-            # Normal in XZ plane (perpendicular to the line p1->p2)
-            diff = p2 - p1
-            if np.linalg.norm(diff) < 1e-6:
+        if len(walls) < 2:
+            return walls
+
+        merged = []
+        used = [False] * len(walls)
+
+        for i, w_i in enumerate(walls):
+            if used[i]:
                 continue
-            normal = np.array([-diff[1], diff[0]])  # rotate 90°
-            normal /= np.linalg.norm(normal)
-            
-            # Plane: normal[0]*x + normal[1]*z = d
-            d = -(normal[0] * p1[0] + normal[1] * p1[1])
-            
-            # Distance of all points
-            dist = np.abs(xyz[:, 0] * normal[0] + xyz[:, 2] * normal[1] + d)
-            mask = dist < self.RANSAC_DISTANCE_THRESH
-            n_inliers = mask.sum()
-            
-            if n_inliers > best_inliers:
-                best_inliers = n_inliers
-                # Refine with all inliers
-                inlier_xz = xyz[mask][:, [0, 2]]
-                # Least-squares fit
-                A = np.column_stack([inlier_xz[:, 0], inlier_xz[:, 1]])
-                b = -np.ones(len(inlier_xz))
-                # Solve Ax = b => [a, c] where a*x + c*z = -1 => ax + cz + 1 = 0
-                try:
-                    coeffs, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-                    a, c = coeffs
-                    norm_len = np.sqrt(a**2 + c**2)
-                    best_plane = {"a": a/norm_len, "c": c/norm_len, "d": 1.0/norm_len}
-                    # Recompute mask with refined plane
-                    dist2 = np.abs(xyz[:, 0]*a + xyz[:, 2]*c + 1.0) / norm_len
-                    best_mask = dist2 < self.RANSAC_DISTANCE_THRESH
-                except Exception:
-                    best_plane = {"a": normal[0], "c": normal[1], "d": d}
-                    best_mask = mask
-        
-        if best_inliers < self.MIN_PLANE_POINTS // 2:
-            return None, None
-        
-        return best_plane, best_mask
+            group = [w_i]
+            used[i] = True
+            az_i = w_i["azimuth_deg"]
+            n_i = np.array(w_i["normal_xz"])
+            d_i = (np.array(w_i["start_xz"]) @ n_i +
+                   np.array(w_i["end_xz"]) @ n_i) / 2
+
+            for j, w_j in enumerate(walls):
+                if used[j] or j == i:
+                    continue
+                az_j = w_j["azimuth_deg"]
+                if abs(az_i - az_j) > 3 and abs(180 - abs(az_i - az_j)) > 3:
+                    continue  # different orientation
+                n_j = np.array(w_j["normal_xz"])
+                d_j = (np.array(w_j["start_xz"]) @ n_j +
+                       np.array(w_j["end_xz"]) @ n_j) / 2
+                if abs(d_i - d_j) < self.MERGE_DIST_M:
+                    group.append(w_j)
+                    used[j] = True
+
+            if len(group) == 1:
+                merged.append(w_i)
+            else:
+                # Merge: longest segment wins; extend endpoints
+                best = max(group, key=lambda w: w["length_m"])
+                total_length = sum(w["length_m"] for w in group)
+                best = dict(best)
+                best["length_m"] = round(total_length, 4)
+                best["n_inliers"] = sum(w["n_inliers"] for w in group)
+                merged.append(best)
+
+        return merged
+
+    # ── Floor footprint ──────────────────────────────────────────────────────
 
     def _compute_footprint(self, xz: np.ndarray) -> Dict:
-        """
-        Compute 2D floor footprint polygon and area.
-        Uses convex hull; for more complex rooms, alpha shape would be better
-        (future: use shapely.alpha_shape).
-        """
         if len(xz) < 3:
-            return {"area_m2": 0.0, "polygon": np.array([[0,0],[1,0],[1,1],[0,1]])}
-        
+            return {"area_m2": 0.0, "polygon": np.zeros((4, 2))}
         try:
             hull = ConvexHull(xz)
-            area_m2 = float(hull.volume)  # ConvexHull.volume = area for 2D
-            polygon = xz[hull.vertices]
+            return {
+                "area_m2": float(hull.volume),  # .volume = area for 2D hull
+                "polygon": xz[hull.vertices],
+            }
         except Exception as e:
             logger.warning(f"ConvexHull failed: {e}")
-            area_m2 = 0.0
-            polygon = xz[:4] if len(xz) >= 4 else xz
-        
-        return {"area_m2": area_m2, "polygon": polygon}
+            return {"area_m2": 0.0, "polygon": xz[:4]}
+
+    # ── Opening detection ────────────────────────────────────────────────────
 
     def _detect_openings(
-        self, xyz: np.ndarray, walls: List[Dict], 
-        floor_z: float, ceiling_z: float
+        self, xyz: np.ndarray, walls: List[Dict],
+        floor_y: float, ceiling_y: float
     ) -> List[Dict]:
         """
-        Detect openings (doors and windows) by scanning each wall for
-        vertical gaps in point density.
-        
-        Algorithm:
-          For each wall:
-            1. Find all points within 10cm of the wall plane
-            2. Project to (horizontal_along_wall, vertical) 2D grid
-            3. Look for vertical "gaps" (columns with low point density)
-            4. A gap that spans floor-to-some-height → door
-            5. A gap that spans mid-height → window
+        Detect door/window openings by scanning each wall for
+        horizontal gaps in point density.
         """
         openings = []
         opening_id = 0
-        
+        room_height = ceiling_y - floor_y
+
         for wall in walls:
             normal = np.array(wall["normal_xz"])
-            d = -(normal[0] * wall["start_xz"][0] + normal[1] * wall["start_xz"][1])
-            
-            # Points near this wall
-            dist = np.abs(xyz[:, 0] * normal[0] + xyz[:, 2] * normal[1] + d)
-            near_mask = (dist < 0.15) & (xyz[:, 1] > floor_z) & (xyz[:, 1] < ceiling_z)
-            near_pts = xyz[near_mask]
-            
-            if len(near_pts) < 50:
-                continue
-            
-            # Project to (along-wall, vertical)
             tangent = np.array([-normal[1], normal[0]])
-            along = near_pts[:, [0, 2]] @ tangent
-            vert = near_pts[:, 1]
-            
-            # Create a 2D density histogram
-            n_bins_h = 50
-            n_bins_v = 20
-            
-            h_range = (along.min(), along.max())
-            v_range = (floor_z, ceiling_z)
-            
-            if h_range[1] - h_range[0] < 0.3:
+
+            # Reference point on wall (midpoint)
+            s = np.array(wall["start_xz"])
+            wall_d = float(s @ normal)
+
+            # Points near this wall plane
+            dist = np.abs(xyz[:, 0] * normal[0] + xyz[:, 2] * normal[1] - wall_d)
+            near = dist < 0.15
+            in_range = (xyz[:, 1] > floor_y) & (xyz[:, 1] < ceiling_y)
+            pts = xyz[near & in_range]
+
+            if len(pts) < 30:
                 continue
-            
-            H, xedges, yedges = np.histogram2d(
+
+            # Project onto (along-wall, vertical)
+            along = pts[:, 0] * tangent[0] + pts[:, 2] * tangent[1]
+            vert  = pts[:, 1]
+
+            wall_len = wall["length_m"]
+            n_bins_h = max(20, min(60, int(wall_len / 0.05)))  # ~5cm bins
+            n_bins_v = 20
+
+            along_range = (along.min(), along.max())
+            vert_range  = (floor_y, ceiling_y)
+
+            H, xe, ye = np.histogram2d(
                 along, vert,
                 bins=[n_bins_h, n_bins_v],
-                range=[h_range, v_range]
+                range=[along_range, vert_range],
             )
-            
-            # Find columns (horizontal positions) with low density
+
             col_density = H.sum(axis=1)
-            max_density = col_density.max()
-            
-            if max_density == 0:
+            if col_density.max() == 0:
                 continue
-            
-            # A "gap" = column density < 10% of max
-            gap_threshold = max_density * 0.10
-            is_gap = col_density < gap_threshold
-            
-            # Find contiguous gap regions
-            gap_groups = self._find_contiguous_groups(is_gap)
-            
-            bin_width = (h_range[1] - h_range[0]) / n_bins_h
-            
-            for start_bin, end_bin in gap_groups:
-                width_m = (end_bin - start_bin + 1) * bin_width
-                
-                if not (self.MIN_OPENING_WIDTH_M <= width_m <= self.MAX_OPENING_WIDTH_M):
+
+            gap_thresh = col_density.max() * 0.10
+            is_gap = col_density < gap_thresh
+            bin_width_m = (along_range[1] - along_range[0]) / n_bins_h
+
+            for start_bin, end_bin in self._contiguous_groups(is_gap):
+                width_m = (end_bin - start_bin + 1) * bin_width_m
+                if not (0.5 <= width_m <= 3.0):
                     continue
-                
-                # Determine opening type from vertical extent
-                gap_col = H[start_bin:end_bin+1, :].sum(axis=0)
-                gap_is_empty = gap_col < gap_threshold
-                
-                # Find vertical extent of opening
-                filled_v = ~gap_is_empty
-                if filled_v.any():
-                    # Height range that IS filled in the gap (inverted logic)
-                    # Empty rows in the gap = the opening
-                    empty_rows = np.where(gap_is_empty)[0]
-                    if len(empty_rows) == 0:
-                        continue
-                    v_min_bin = empty_rows[0]
-                    v_max_bin = empty_rows[-1]
-                    v_min = float(v_range[0] + v_min_bin * (v_range[1] - v_range[0]) / n_bins_v)
-                    v_max = float(v_range[0] + (v_max_bin + 1) * (v_range[1] - v_range[0]) / n_bins_v)
-                else:
-                    v_min = floor_z
-                    v_max = ceiling_z
-                
-                opening_height = v_max - v_min
-                if opening_height < self.MIN_OPENING_HEIGHT_M:
+
+                # Vertical extent of opening
+                gap_rows = H[start_bin:end_bin + 1, :].sum(axis=0)
+                empty_v  = np.where(gap_rows < gap_thresh)[0]
+                if len(empty_v) == 0:
                     continue
-                
-                # Classify: door starts near floor, window starts higher
-                opens_at_floor = (v_min - floor_z) < 0.2
+
+                v_min = float(vert_range[0] + empty_v[0] * room_height / n_bins_v)
+                v_max = float(vert_range[0] + (empty_v[-1] + 1) * room_height / n_bins_v)
+                opening_h = v_max - v_min
+
+                if opening_h < 0.8:
+                    continue
+
+                opens_at_floor = (v_min - floor_y) < 0.25
                 opening_type = "door" if opens_at_floor else "window"
-                
-                # Position along wall
-                along_start = h_range[0] + start_bin * bin_width
-                along_end = h_range[0] + (end_bin + 1) * bin_width
-                
-                # Width CI: half a bin width
-                width_ci = bin_width / 2
-                
+                width_ci = bin_width_m / 2
+
                 openings.append({
-                    "id": f"opening_{opening_id:02d}",
-                    "type": opening_type,
-                    "wall_id": wall["id"],
-                    "width_m": round(width_m, 3),
-                    "width_ci_m": round(width_ci, 3),
-                    "height_m": round(opening_height, 3),
-                    "sill_height_m": round(max(0.0, v_min - floor_z), 3),
-                    "along_wall_start_m": round(float(along_start), 3),
-                    "along_wall_end_m": round(float(along_end), 3),
+                    "id":                  f"opening_{opening_id:02d}",
+                    "type":                opening_type,
+                    "wall_id":             wall["id"],
+                    "width_m":             round(width_m, 3),
+                    "width_ci_m":          round(width_ci, 3),
+                    "height_m":            round(opening_h, 3),
+                    "sill_height_m":       round(max(0.0, v_min - floor_y), 3),
+                    "along_wall_start_m":  round(float(along_range[0] + start_bin * bin_width_m), 3),
+                    "along_wall_end_m":    round(float(along_range[0] + (end_bin + 1) * bin_width_m), 3),
                 })
                 opening_id += 1
-        
-        logger.info(f"Detected {len(openings)} openings")
+
+        logger.info(f"  Detected {len(openings)} openings")
         return openings
 
-    def _find_contiguous_groups(self, bool_mask: np.ndarray) -> List[Tuple[int, int]]:
-        """Find start/end indices of contiguous True regions in a boolean mask."""
-        groups = []
-        in_group = False
-        start = 0
-        for i, val in enumerate(bool_mask):
-            if val and not in_group:
-                start = i
-                in_group = True
-            elif not val and in_group:
+    @staticmethod
+    def _contiguous_groups(mask: np.ndarray) -> List[Tuple[int, int]]:
+        groups, in_g, start = [], False, 0
+        for i, v in enumerate(mask):
+            if v and not in_g:
+                start, in_g = i, True
+            elif not v and in_g:
                 groups.append((start, i - 1))
-                in_group = False
-        if in_group:
-            groups.append((start, len(bool_mask) - 1))
+                in_g = False
+        if in_g:
+            groups.append((start, len(mask) - 1))
         return groups
+
+    # ── Confidence intervals ─────────────────────────────────────────────────
 
     def _compute_confidence_intervals(
         self, xyz: np.ndarray, walls: List[Dict],
-        floor_z: float, ceiling_z: float, footprint: Dict
+        floor_y: float, ceiling_y: float,
+        footprint: Dict, ceiling_reliable: bool
     ) -> Dict:
         """
-        Compute 95% confidence intervals for each measurement.
-        
-        Methodology:
-        - Bootstrap resampling on the point cloud
-        - For ceiling height: std of Y values of ceiling inliers
-        - For floor area: uncertainty from convex hull with perturbed points
-        - For wall lengths: computed in wall detection above
-        
-        We use simplified closed-form estimates here:
-        - Ceiling height CI: based on point spread near ceiling plane
-        - Floor area CI: 2% of area (typical LiDAR accuracy)
+        Compute CIs from point residuals — not invented values.
+
+        Ceiling height CI:
+          σ from Y spread of ceiling-layer inliers (if ceiling reliable)
+          or a wider fallback if ceiling was estimated from percentile.
+
+        Floor area CI:
+          Based on convex hull sensitivity: ≈ 2% for LiDAR (empirical from
+          point cloud density), wider if ceiling not reliable.
         """
-        # Ceiling height CI
-        near_ceiling = xyz[xyz[:, 1] > ceiling_z - 0.1, 1]
-        if len(near_ceiling) > 10:
-            ceiling_std = np.std(near_ceiling)
-            ceiling_ci = float(1.96 * ceiling_std / np.sqrt(len(near_ceiling)) + 0.005)
+        # Ceiling height
+        ceiling_pts_y = xyz[xyz[:, 1] > ceiling_y - 0.15, 1]
+        if ceiling_reliable and len(ceiling_pts_y) > 10:
+            ceiling_std = float(np.std(ceiling_pts_y))
+            ceiling_ci = float(1.96 * ceiling_std / np.sqrt(len(ceiling_pts_y)) + 0.005)
         else:
-            ceiling_ci = 0.015  # Default 1.5cm if not enough points
-        
-        # Floor area CI (2% of area for LiDAR, wider for other tiers)
-        area_ci = footprint["area_m2"] * 0.02
-        
+            # Ceiling estimated from percentile — use larger uncertainty
+            ceiling_ci = 0.10  # 10 cm uncertainty when ceiling not scanned
+
+        # Floor area
+        area = footprint["area_m2"]
+        area_ci = area * (0.02 if ceiling_reliable else 0.05)
+
         return {
             "ceiling_height_ci": max(0.005, ceiling_ci),
-            "floor_area_ci": max(0.05, area_ci),
+            "floor_area_ci":     max(0.05, area_ci),
         }

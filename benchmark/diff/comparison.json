@@ -1,0 +1,61 @@
+{
+  "summary": "BEFORE vs AFTER: calibration fix + robust wall detection",
+  "calibration_change": {
+    "before": "RGB intrinsics used directly on depth images (fx=1599, cx=955)",
+    "after": "Depth intrinsics scaled from RGB (fx=213.3, cx=127.4) [ASSUMPTION: 0.001 m/unit]"
+  },
+  "before": {
+    "ceiling_height_m": 1.097594391554594,
+    "floor_area_m2": 7.190900081496589,
+    "n_walls": 12,
+    "n_openings": 18,
+    "wall_lengths": [
+      9.63,
+      9.51,
+      9.46,
+      9.27,
+      9.24,
+      9.23,
+      9.15,
+      9.03,
+      9.01,
+      8.96,
+      8.81,
+      6.76
+    ]
+  },
+  "after": {
+    "ceiling_height_m": 1.5049,
+    "floor_area_m2": 38.8915,
+    "n_walls": 18,
+    "n_openings": 33,
+    "wall_lengths": [
+      8.51,
+      8.41,
+      7.94,
+      7.41,
+      7.25,
+      6.55,
+      6.44,
+      6.3,
+      6.12,
+      6.09,
+      6.03,
+      5.48,
+      4.86,
+      4.19,
+      3.25,
+      3.24,
+      2.75,
+      1.26
+    ],
+    "ceiling_detection_reliable": true
+  },
+  "known_issues": [
+    "Ceiling height 1.505m is suspect \u2014 scan may not reach ceiling (only 6698 ceiling inliers vs 83705 floor)",
+    "Wall count 18 still high \u2014 histogram peaks include non-orthogonal directions from scan motion",
+    "Floor area 38.89m2 is affected by large XZ span from moving scanner \u2014 floor points span entire trajectory",
+    "True room area requires measuring only the room polygon, not scanner trajectory extent",
+    "Depth unit assumption (0.001 m/unit) not independently verified"
+  ]
+}

@@ -1,0 +1,1104 @@
+{
+  "schema_version": "1.0",
+  "pipeline_version": "1.0.0",
+  "timestamp": "2026-10-02T15:41:41.237417Z",
+  "tier": "lidar",
+  "processing_time_s": 40.86,
+  "rooms": {
+    "room_001": {
+      "geometry": {
+        "ceiling_height_m": 1.097594391554594,
+        "ceiling_height_ci_m": 0.00601985670392975,
+        "floor_area_m2": 7.190900081496589,
+        "floor_area_ci_m2": 0.14381800162993177,
+        "floor_z": -1.135892629623413,
+        "ceiling_z": -0.038298238068819046,
+        "walls": [
+          {
+            "id": "wall_00",
+            "length_m": 9.4581,
+            "length_ci_m": 0.0723,
+            "start_xz": [
+              -6.105762118674274,
+              -1.1844463919665067
+            ],
+            "end_xz": [
+              1.1274791573203613,
+              4.909535165599685
+            ],
+            "normal_xz": [
+              0.6443108577347003,
+              -0.7647637011555758
+            ],
+            "n_inliers": 4854,
+            "height_coverage": 0.554
+          },
+          {
+            "id": "wall_01",
+            "length_m": 9.6269,
+            "length_ci_m": 0.0823,
+            "start_xz": [
+              -5.819588339180841,
+              -1.5674404119805199
+            ],
+            "end_xz": [
+              0.21868379041804564,
+              5.930367633617712
+            ],
+            "normal_xz": [
+              0.7788365583812932,
+              -0.6272269249073916
+            ],
+            "n_inliers": 4383,
+            "height_coverage": 0.817
+          },
+          {
+            "id": "wall_02",
+            "length_m": 8.9599,
+            "length_ci_m": 0.0829,
+            "start_xz": [
+              -5.9442509955410205,
+              -1.2962719674148517
+            ],
+            "end_xz": [
+              -0.6829070500374028,
+              5.956180889494047
+            ],
+            "normal_xz": [
+              0.8094345530230499,
+              -0.5872101024100109
+            ],
+            "n_inliers": 3691,
+            "height_coverage": 0.811
+          },
+          {
+            "id": "wall_03",
+            "length_m": 9.034,
+            "length_ci_m": 0.0922,
+            "start_xz": [
+              -6.937659846139206,
+              -0.2548281233962042
+            ],
+            "end_xz": [
+              1.4480837651076,
+              3.1057124869551838
+            ],
+            "normal_xz": [
+              0.3719863508471235,
+              -0.9282381993774231
+            ],
+            "n_inliers": 4069,
+            "height_coverage": 0.699
+          },
+          {
+            "id": "wall_04",
+            "length_m": 9.2263,
+            "length_ci_m": 0.0878,
+            "start_xz": [
+              -6.95582955763099,
+              -0.2098097248751043
+            ],
+            "end_xz": [
+              1.5547826888388787,
+              3.353169043372623
+            ],
+            "normal_xz": [
+              0.386174691629991,
+              -0.9224256650508383
+            ],
+            "n_inliers": 4261,
+            "height_coverage": 0.631
+          },
+          {
+            "id": "wall_05",
+            "length_m": 9.5112,
+            "length_ci_m": 0.0856,
+            "start_xz": [
+              -6.829244951129747,
+              -0.25377935193949863
+            ],
+            "end_xz": [
+              1.354542507175796,
+              4.5927720484232735
+            ],
+            "normal_xz": [
+              0.5095611153048794,
+              -0.8604344657027911
+            ],
+            "n_inliers": 4343,
+            "height_coverage": 0.648
+          },
+          {
+            "id": "wall_06",
+            "length_m": 9.2433,
+            "length_ci_m": 0.0909,
+            "start_xz": [
+              -7.299229271077793,
+              1.1070332867471018
+            ],
+            "end_xz": [
+              1.6324983353724858,
+              3.486682591147822
+            ],
+            "normal_xz": [
+              0.2574460183218907,
+              -0.966292682188065
+            ],
+            "n_inliers": 3628,
+            "height_coverage": 0.643
+          },
+          {
+            "id": "wall_07",
+            "length_m": 9.2664,
+            "length_ci_m": 0.0902,
+            "start_xz": [
+              -5.986031494875373,
+              -1.2742762902277875
+            ],
+            "end_xz": [
+              -0.7046296506031093,
+              6.339685423093767
+            ],
+            "normal_xz": [
+              0.8216768240768768,
+              -0.5699536794994287
+            ],
+            "n_inliers": 3166,
+            "height_coverage": 0.686
+          },
+          {
+            "id": "wall_08",
+            "length_m": 8.8144,
+            "length_ci_m": 0.1053,
+            "start_xz": [
+              -6.60710397506095,
+              -0.7753862104117688
+            ],
+            "end_xz": [
+              1.3630639355092744,
+              2.9888904437951895
+            ],
+            "normal_xz": [
+              0.42706068825757343,
+              -0.9042229639557756
+            ],
+            "n_inliers": 3202,
+            "height_coverage": 0.815
+          },
+          {
+            "id": "wall_09",
+            "length_m": 9.1529,
+            "length_ci_m": 0.083,
+            "start_xz": [
+              -6.778156821218519,
+              -0.04070712942889676
+            ],
+            "end_xz": [
+              1.6594254689848589,
+              3.506452002043689
+            ],
+            "normal_xz": [
+              0.3875458669028124,
+              -0.9218504222738891
+            ],
+            "n_inliers": 3645,
+            "height_coverage": 0.595
+          },
+          {
+            "id": "wall_10",
+            "length_m": 6.7644,
+            "length_ci_m": 0.0641,
+            "start_xz": [
+              -3.5540812965596347,
+              0.25313243088243353
+            ],
+            "end_xz": [
+              -1.2314084203146385,
+              6.606246799860594
+            ],
+            "normal_xz": [
+              0.9392009261224057,
+              -0.34336805380060537
+            ],
+            "n_inliers": 3667,
+            "height_coverage": 0.799
+          },
+          {
+            "id": "wall_11",
+            "length_m": 9.0149,
+            "length_ci_m": 0.0751,
+            "start_xz": [
+              -6.308578109398299,
+              -1.2091983022265471
+            ],
+            "end_xz": [
+              0.5927677190937088,
+              4.5907634461642415
+            ],
+            "normal_xz": [
+              0.6433762049145519,
+              -0.765550167493776
+            ],
+            "n_inliers": 4042,
+            "height_coverage": 0.571
+          }
+        ],
+        "openings": [
+          {
+            "id": "opening_00",
+            "type": "door",
+            "wall_id": "wall_00",
+            "width_m": 0.588,
+            "width_ci_m": 0.098,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -4.82,
+            "along_wall_end_m": -4.232
+          },
+          {
+            "id": "opening_01",
+            "type": "door",
+            "wall_id": "wall_00",
+            "width_m": 0.784,
+            "width_ci_m": 0.098,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": 0.276,
+            "along_wall_end_m": 1.06
+          },
+          {
+            "id": "opening_02",
+            "type": "door",
+            "wall_id": "wall_01",
+            "width_m": 1.618,
+            "width_ci_m": 0.101,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -5.041,
+            "along_wall_end_m": -3.423
+          },
+          {
+            "id": "opening_03",
+            "type": "door",
+            "wall_id": "wall_02",
+            "width_m": 0.934,
+            "width_ci_m": 0.093,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -4.01,
+            "along_wall_end_m": -3.076
+          },
+          {
+            "id": "opening_04",
+            "type": "door",
+            "wall_id": "wall_03",
+            "width_m": 1.275,
+            "width_ci_m": 0.091,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -5.259,
+            "along_wall_end_m": -3.984
+          },
+          {
+            "id": "opening_05",
+            "type": "door",
+            "wall_id": "wall_03",
+            "width_m": 0.547,
+            "width_ci_m": 0.091,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -0.341,
+            "along_wall_end_m": 0.206
+          },
+          {
+            "id": "opening_06",
+            "type": "door",
+            "wall_id": "wall_04",
+            "width_m": 1.876,
+            "width_ci_m": 0.094,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -5.371,
+            "along_wall_end_m": -3.495
+          },
+          {
+            "id": "opening_07",
+            "type": "door",
+            "wall_id": "wall_05",
+            "width_m": 0.774,
+            "width_ci_m": 0.097,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -0.29,
+            "along_wall_end_m": 0.484
+          },
+          {
+            "id": "opening_08",
+            "type": "door",
+            "wall_id": "wall_06",
+            "width_m": 1.876,
+            "width_ci_m": 0.094,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -6.206,
+            "along_wall_end_m": -4.33
+          },
+          {
+            "id": "opening_09",
+            "type": "door",
+            "wall_id": "wall_06",
+            "width_m": 0.938,
+            "width_ci_m": 0.094,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -0.954,
+            "along_wall_end_m": -0.016
+          },
+          {
+            "id": "opening_10",
+            "type": "door",
+            "wall_id": "wall_07",
+            "width_m": 0.944,
+            "width_ci_m": 0.094,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -3.915,
+            "along_wall_end_m": -2.971
+          },
+          {
+            "id": "opening_11",
+            "type": "door",
+            "wall_id": "wall_07",
+            "width_m": 0.755,
+            "width_ci_m": 0.094,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -2.404,
+            "along_wall_end_m": -1.649
+          },
+          {
+            "id": "opening_12",
+            "type": "door",
+            "wall_id": "wall_07",
+            "width_m": 0.567,
+            "width_ci_m": 0.094,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -1.082,
+            "along_wall_end_m": -0.516
+          },
+          {
+            "id": "opening_13",
+            "type": "door",
+            "wall_id": "wall_08",
+            "width_m": 0.717,
+            "width_ci_m": 0.09,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -2.18,
+            "along_wall_end_m": -1.463
+          },
+          {
+            "id": "opening_14",
+            "type": "door",
+            "wall_id": "wall_08",
+            "width_m": 0.538,
+            "width_ci_m": 0.09,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -0.207,
+            "along_wall_end_m": 0.331
+          },
+          {
+            "id": "opening_15",
+            "type": "door",
+            "wall_id": "wall_09",
+            "width_m": 0.57,
+            "width_ci_m": 0.095,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -4.023,
+            "along_wall_end_m": -3.453
+          },
+          {
+            "id": "opening_16",
+            "type": "door",
+            "wall_id": "wall_11",
+            "width_m": 0.786,
+            "width_ci_m": 0.098,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": -4.849,
+            "along_wall_end_m": -4.062
+          },
+          {
+            "id": "opening_17",
+            "type": "door",
+            "wall_id": "wall_11",
+            "width_m": 0.786,
+            "width_ci_m": 0.098,
+            "height_m": 1.098,
+            "sill_height_m": 0.0,
+            "along_wall_start_m": 0.262,
+            "along_wall_end_m": 1.048
+          }
+        ],
+        "footprint_polygon": [
+          [
+            -4.327547073364258,
+            0.7881311774253845
+          ],
+          [
+            -4.3702168464660645,
+            -1.752370834350586
+          ],
+          [
+            -4.351150035858154,
+            -1.7786098718643188
+          ],
+          [
+            -4.255066871643066,
+            -1.7988463640213013
+          ],
+          [
+            -2.477602958679199,
+            -1.3524004220962524
+          ],
+          [
+            -2.1172804832458496,
+            -0.509101152420044
+          ],
+          [
+            -2.0789670944213867,
+            -0.4057295322418213
+          ],
+          [
+            -2.000965118408203,
+            -0.1952662318944931
+          ],
+          [
+            -1.9413481950759888,
+            -0.027022575959563255
+          ],
+          [
+            -1.85891854763031,
+            0.20636607706546783
+          ],
+          [
+            -1.840315818786621,
+            0.26556888222694397
+          ],
+          [
+            -1.6011286973953247,
+            1.3462311029434204
+          ],
+          [
+            -1.597343921661377,
+            1.366439938545227
+          ],
+          [
+            -1.6327811479568481,
+            1.4232186079025269
+          ],
+          [
+            -1.6729686260223389,
+            1.4639592170715332
+          ],
+          [
+            -1.693191409111023,
+            1.4837716817855835
+          ],
+          [
+            -3.1306495666503906,
+            1.7796039581298828
+          ],
+          [
+            -3.188382387161255,
+            1.7357332706451416
+          ],
+          [
+            -3.9699220657348633,
+            1.1003632545471191
+          ],
+          [
+            -4.065118789672852,
+            1.0226093530654907
+          ],
+          [
+            -4.283112525939941,
+            0.8344175219535828
+          ],
+          [
+            -4.304807186126709,
+            0.8143162131309509
+          ],
+          [
+            -4.322975158691406,
+            0.7944327592849731
+          ]
+        ],
+        "floor_normal": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "n_points_total": 4143506,
+        "n_points_used": 134730
+      },
+      "damage": [
+        {
+          "class": "water_stain",
+          "confidence": 0.5,
+          "area_m2": 5.0,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 0,
+          "bbox_px": [
+            "0",
+            "0",
+            "1920",
+            "1440"
+          ],
+          "concealed_flag": false,
+          "concealed_rule": null,
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "water_stain",
+            "description": "Water damage treatment \u2014 dry, treat, repaint",
+            "unit": "m\u00b2",
+            "quantity": 5.0
+          }
+        },
+        {
+          "class": "mold",
+          "confidence": 0.5,
+          "area_m2": 0.1895,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 0,
+          "bbox_px": [
+            "955",
+            "0",
+            "1090",
+            "267"
+          ],
+          "concealed_flag": true,
+          "concealed_rule": "hidden_mold",
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "mold",
+            "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+            "unit": "m\u00b2",
+            "quantity": 0.28
+          }
+        },
+        {
+          "class": "water_stain",
+          "confidence": 0.5,
+          "area_m2": 0.5436,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 200,
+          "bbox_px": [
+            "1600",
+            "0",
+            "1920",
+            "234"
+          ],
+          "concealed_flag": false,
+          "concealed_rule": null,
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "water_stain",
+            "description": "Water damage treatment \u2014 dry, treat, repaint",
+            "unit": "m\u00b2",
+            "quantity": 0.54
+          }
+        },
+        {
+          "class": "mold",
+          "confidence": 0.5,
+          "area_m2": 0.0583,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 200,
+          "bbox_px": [
+            "1273",
+            "602",
+            "1563",
+            "711"
+          ],
+          "concealed_flag": true,
+          "concealed_rule": "hidden_mold",
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "mold",
+            "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+            "unit": "m\u00b2",
+            "quantity": 0.09
+          }
+        },
+        {
+          "class": "water_stain",
+          "confidence": 0.5,
+          "area_m2": 5.0,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 400,
+          "bbox_px": [
+            "0",
+            "0",
+            "1920",
+            "1440"
+          ],
+          "concealed_flag": false,
+          "concealed_rule": null,
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "water_stain",
+            "description": "Water damage treatment \u2014 dry, treat, repaint",
+            "unit": "m\u00b2",
+            "quantity": 5.0
+          }
+        },
+        {
+          "class": "mold",
+          "confidence": 0.5,
+          "area_m2": 2.5326,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 400,
+          "bbox_px": [
+            "1016",
+            "634",
+            "1920",
+            "1440"
+          ],
+          "concealed_flag": true,
+          "concealed_rule": "hidden_mold",
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "mold",
+            "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+            "unit": "m\u00b2",
+            "quantity": 3.8
+          }
+        },
+        {
+          "class": "water_stain",
+          "confidence": 0.5,
+          "area_m2": 0.01,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 600,
+          "bbox_px": [
+            "360",
+            "0",
+            "416",
+            "21"
+          ],
+          "concealed_flag": false,
+          "concealed_rule": null,
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "water_stain",
+            "description": "Water damage treatment \u2014 dry, treat, repaint",
+            "unit": "m\u00b2",
+            "quantity": 0.01
+          }
+        },
+        {
+          "class": "mold",
+          "confidence": 0.5,
+          "area_m2": 0.01,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 600,
+          "bbox_px": [
+            "496",
+            "714",
+            "551",
+            "740"
+          ],
+          "concealed_flag": true,
+          "concealed_rule": "hidden_mold",
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "mold",
+            "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+            "unit": "m\u00b2",
+            "quantity": 0.01
+          }
+        },
+        {
+          "class": "water_stain",
+          "confidence": 0.5,
+          "area_m2": 0.0126,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 800,
+          "bbox_px": [
+            "1876",
+            "99",
+            "1920",
+            "207"
+          ],
+          "concealed_flag": false,
+          "concealed_rule": null,
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "water_stain",
+            "description": "Water damage treatment \u2014 dry, treat, repaint",
+            "unit": "m\u00b2",
+            "quantity": 0.01
+          }
+        },
+        {
+          "class": "mold",
+          "confidence": 0.5,
+          "area_m2": 0.01,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 800,
+          "bbox_px": [
+            "1564",
+            "864",
+            "1640",
+            "879"
+          ],
+          "concealed_flag": true,
+          "concealed_rule": "hidden_mold",
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "mold",
+            "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+            "unit": "m\u00b2",
+            "quantity": 0.01
+          }
+        },
+        {
+          "class": "water_stain",
+          "confidence": 0.5,
+          "area_m2": 4.4837,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 1000,
+          "bbox_px": [
+            "0",
+            "0",
+            "1663",
+            "443"
+          ],
+          "concealed_flag": false,
+          "concealed_rule": null,
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "water_stain",
+            "description": "Water damage treatment \u2014 dry, treat, repaint",
+            "unit": "m\u00b2",
+            "quantity": 4.48
+          }
+        },
+        {
+          "class": "mold",
+          "confidence": 0.5,
+          "area_m2": 0.01,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 1000,
+          "bbox_px": [
+            "717",
+            "429",
+            "810",
+            "441"
+          ],
+          "concealed_flag": true,
+          "concealed_rule": "hidden_mold",
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "mold",
+            "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+            "unit": "m\u00b2",
+            "quantity": 0.01
+          }
+        },
+        {
+          "class": "water_stain",
+          "confidence": 0.5,
+          "area_m2": 5.0,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 1200,
+          "bbox_px": [
+            "0",
+            "0",
+            "1920",
+            "1073"
+          ],
+          "concealed_flag": false,
+          "concealed_rule": null,
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "water_stain",
+            "description": "Water damage treatment \u2014 dry, treat, repaint",
+            "unit": "m\u00b2",
+            "quantity": 5.0
+          }
+        },
+        {
+          "class": "mold",
+          "confidence": 0.5,
+          "area_m2": 0.01,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 1200,
+          "bbox_px": [
+            "996",
+            "6",
+            "1020",
+            "29"
+          ],
+          "concealed_flag": true,
+          "concealed_rule": "hidden_mold",
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "mold",
+            "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+            "unit": "m\u00b2",
+            "quantity": 0.01
+          }
+        },
+        {
+          "class": "water_stain",
+          "confidence": 0.5,
+          "area_m2": 0.01,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 1400,
+          "bbox_px": [
+            "0",
+            "0",
+            "14",
+            "66"
+          ],
+          "concealed_flag": false,
+          "concealed_rule": null,
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "water_stain",
+            "description": "Water damage treatment \u2014 dry, treat, repaint",
+            "unit": "m\u00b2",
+            "quantity": 0.01
+          }
+        },
+        {
+          "class": "water_stain",
+          "confidence": 0.5,
+          "area_m2": 0.4376,
+          "center_x": 0.0,
+          "center_z": 0.0,
+          "center_y": 1.0,
+          "frame_idx": 1600,
+          "bbox_px": [
+            "1248",
+            "0",
+            "1726",
+            "292"
+          ],
+          "concealed_flag": false,
+          "concealed_rule": null,
+          "scope_items": {
+            "surface": "wall",
+            "damage_class": "water_stain",
+            "description": "Water damage treatment \u2014 dry, treat, repaint",
+            "unit": "m\u00b2",
+            "quantity": 0.44
+          }
+        }
+      ],
+      "scope_items": [
+        {
+          "surface": "wall",
+          "damage_class": "water_stain",
+          "description": "Water damage treatment \u2014 dry, treat, repaint",
+          "unit": "m\u00b2",
+          "quantity": 5.0
+        },
+        {
+          "surface": "wall",
+          "damage_class": "mold",
+          "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+          "unit": "m\u00b2",
+          "quantity": 0.28
+        },
+        {
+          "surface": "wall",
+          "damage_class": "water_stain",
+          "description": "Water damage treatment \u2014 dry, treat, repaint",
+          "unit": "m\u00b2",
+          "quantity": 0.54
+        },
+        {
+          "surface": "wall",
+          "damage_class": "mold",
+          "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+          "unit": "m\u00b2",
+          "quantity": 0.09
+        },
+        {
+          "surface": "wall",
+          "damage_class": "water_stain",
+          "description": "Water damage treatment \u2014 dry, treat, repaint",
+          "unit": "m\u00b2",
+          "quantity": 5.0
+        },
+        {
+          "surface": "wall",
+          "damage_class": "mold",
+          "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+          "unit": "m\u00b2",
+          "quantity": 3.8
+        },
+        {
+          "surface": "wall",
+          "damage_class": "water_stain",
+          "description": "Water damage treatment \u2014 dry, treat, repaint",
+          "unit": "m\u00b2",
+          "quantity": 0.01
+        },
+        {
+          "surface": "wall",
+          "damage_class": "mold",
+          "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+          "unit": "m\u00b2",
+          "quantity": 0.01
+        },
+        {
+          "surface": "wall",
+          "damage_class": "water_stain",
+          "description": "Water damage treatment \u2014 dry, treat, repaint",
+          "unit": "m\u00b2",
+          "quantity": 0.01
+        },
+        {
+          "surface": "wall",
+          "damage_class": "mold",
+          "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+          "unit": "m\u00b2",
+          "quantity": 0.01
+        },
+        {
+          "surface": "wall",
+          "damage_class": "water_stain",
+          "description": "Water damage treatment \u2014 dry, treat, repaint",
+          "unit": "m\u00b2",
+          "quantity": 4.48
+        },
+        {
+          "surface": "wall",
+          "damage_class": "mold",
+          "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+          "unit": "m\u00b2",
+          "quantity": 0.01
+        },
+        {
+          "surface": "wall",
+          "damage_class": "water_stain",
+          "description": "Water damage treatment \u2014 dry, treat, repaint",
+          "unit": "m\u00b2",
+          "quantity": 5.0
+        },
+        {
+          "surface": "wall",
+          "damage_class": "mold",
+          "description": "Mold remediation \u2014 biocide treatment + encapsulation",
+          "unit": "m\u00b2",
+          "quantity": 0.01
+        },
+        {
+          "surface": "wall",
+          "damage_class": "water_stain",
+          "description": "Water damage treatment \u2014 dry, treat, repaint",
+          "unit": "m\u00b2",
+          "quantity": 0.01
+        },
+        {
+          "surface": "wall",
+          "damage_class": "water_stain",
+          "description": "Water damage treatment \u2014 dry, treat, repaint",
+          "unit": "m\u00b2",
+          "quantity": 0.44
+        }
+      ],
+      "concealed_flags": [
+        {
+          "type": "hidden_mold",
+          "description": "Mold detected in corner region. Possible hidden mold growth behind wall surface. Recommend professional inspection.",
+          "linked_damage_class": "mold",
+          "confidence": 0.5
+        },
+        {
+          "type": "hidden_mold",
+          "description": "Mold detected in corner region. Possible hidden mold growth behind wall surface. Recommend professional inspection.",
+          "linked_damage_class": "mold",
+          "confidence": 0.5
+        },
+        {
+          "type": "hidden_mold",
+          "description": "Mold detected in corner region. Possible hidden mold growth behind wall surface. Recommend professional inspection.",
+          "linked_damage_class": "mold",
+          "confidence": 0.5
+        },
+        {
+          "type": "hidden_mold",
+          "description": "Mold detected in corner region. Possible hidden mold growth behind wall surface. Recommend professional inspection.",
+          "linked_damage_class": "mold",
+          "confidence": 0.5
+        },
+        {
+          "type": "hidden_mold",
+          "description": "Mold detected in corner region. Possible hidden mold growth behind wall surface. Recommend professional inspection.",
+          "linked_damage_class": "mold",
+          "confidence": 0.5
+        },
+        {
+          "type": "hidden_mold",
+          "description": "Mold detected in corner region. Possible hidden mold growth behind wall surface. Recommend professional inspection.",
+          "linked_damage_class": "mold",
+          "confidence": 0.5
+        },
+        {
+          "type": "hidden_mold",
+          "description": "Mold detected in corner region. Possible hidden mold growth behind wall surface. Recommend professional inspection.",
+          "linked_damage_class": "mold",
+          "confidence": 0.5
+        }
+      ]
+    }
+  },
+  "summary": {
+    "total_floor_area_m2": 7.190900081496589,
+    "total_floor_area_ci_m2": 0.14381800162993177,
+    "n_rooms": 1,
+    "n_walls_total": 12,
+    "n_openings_total": 18,
+    "n_damage_regions": 16,
+    "n_concealed_flags": 7,
+    "ceiling_height_m": 1.097594391554594
+  }
+}
