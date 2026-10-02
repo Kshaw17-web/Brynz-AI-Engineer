@@ -13,21 +13,22 @@ venv/
 env/
 .env
 
-# Large data files (tracked by Git LFS or fetched separately)
+# Large video/image files (use Git LFS or store separately)
 *.mp4
-depth/
-confidence/
-*.ply
-*.pcd
+*.mov
+*.avi
+*/depth/
+*/confidence/
 
-# Model weights (fetched by script)
+# Model weights (fetched by scripts/download_models.py)
 models/
 weights/
 *.pt
 *.pth
 *.onnx
 
-# Outputs (reproducible)
+# Pipeline outputs (regenerable)
+*_output/
 outputs/
 results/
 

@@ -93,20 +93,29 @@ class LiDARProcessor:
             
             pose = poses[frame_idx]
             
-            # Load depth
+            # Load depth — uint16 PNG (16-bit), values in mm
             depth_raw = cv2.imread(str(depth_file), cv2.IMREAD_ANYDEPTH)
             if depth_raw is None:
                 continue
             
-            # Determine depth scale by checking value range
-            # If max value > 10000, data is in mm; if 0-10, it's in metres already
+            # Safety: ensure 2D (should already be for these PNGs)
+            if depth_raw.ndim == 3:
+                depth_raw = depth_raw[:, :, 0]
+            
             depth_m = self._decode_depth(depth_raw)
             
             # Load confidence
             conf_file = conf_dir / depth_file.name
             if conf_file.exists():
                 conf = cv2.imread(str(conf_file), cv2.IMREAD_GRAYSCALE)
-                mask = (conf >= self.confidence_threshold) & (depth_m > 0.1) & (depth_m < self.max_depth_m)
+                if conf is None:
+                    conf = cv2.imread(str(conf_file), cv2.IMREAD_UNCHANGED)
+                if conf is not None and conf.ndim == 3:
+                    conf = conf[:, :, 0]  # squeeze (H,W,1) → (H,W)
+                if conf is not None:
+                    mask = (conf >= self.confidence_threshold) & (depth_m > 0.1) & (depth_m < self.max_depth_m)
+                else:
+                    mask = (depth_m > 0.1) & (depth_m < self.max_depth_m)
             else:
                 mask = (depth_m > 0.1) & (depth_m < self.max_depth_m)
             
@@ -165,7 +174,7 @@ class LiDARProcessor:
         fx, fy = K[0, 0], K[1, 1]
         cx, cy = K[0, 2], K[1, 2]
         
-        h, w = depth_m.shape
+        h, w = depth_m.shape[:2]  # safe even if 3D array slips through
         u, v = np.meshgrid(np.arange(w), np.arange(h))
         
         z = depth_m[mask]
