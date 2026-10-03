@@ -112,16 +112,13 @@ Apple's ARKit performs real-time visual-inertial odometry using the camera + IMU
 **2. Plane-anchored correction**
 After extracting the floor plane, we verify all points classified as floor are consistent with the detected floor height. Vertical drift manifests as floor point spread > 5cm, which we detect and flag.
 
-**3. Loop closure (multi-room)**
-When stitching multiple rooms, we use ICP registration on shared wall surfaces (doorway frames appear in both rooms' scans). This pulls the rooms into alignment and corrects accumulated drift between rooms.
-
-**4. Ablation study**
-Running `python stitch.py --no-drift-correction` produces a stitched plan without pose graph optimization. The footprint difference between corrected and uncorrected shows the magnitude of drift.
+**3. Drift audit & loop closure status**
+ARKit poses are currently integrated open-loop. While wall plane RMS residuals (~2.8–2.9 cm) indicate consistent short-range geometry across single-room scans, full ICP/pose-graph loop closure is not yet implemented. Accumulated drift across extended multi-room sequences remains an open limitation.
 
 ### Drift Accountability
-- Single room: ARKit VIO drift < 1cm → no additional correction needed
-- Multi-room: Loop closure via shared openings → residual drift < 2cm
-- "Poses used as-is" would show ~3-5cm drift per room chain — we do NOT use poses as-is
+- Single room: Audited via wall plane residuals (~2.8 cm avg residual indicates low local distortion; external drift unverified without ground truth).
+- Multi-room: Current pipeline uses open-loop odometry; full pose-graph loop closure remains a planned enhancement for production.
+- Poses: ARKit VIO poses are used directly without secondary trajectory optimization; disclosures are explicitly recorded in the `drift_audit` output metadata.
 
 ---
 
@@ -172,18 +169,15 @@ iPhone LiDAR uses Apple's ARKit which self-calibrates continuously. Our pipeline
 
 ---
 
-## Fix Loop (Part 4)
+## Fix Loop Evidence
 
-### Worst-Performing Gate: Opening Width Detection
+A formal, reproducible fix loop was conducted on the geometry extraction pipeline using existing benchmark artifacts. The investigation focused on the worst observed behavior: **Room Geometry Contamination and Trajectory Hull Area Inflation**.
 
-**Failing number**: Opening width CI = ±2.5cm (gate requires ±2cm on 85% of openings)
+### Key Findings & Shipped Improvements:
+1. **Problem Identified**: In the Checkpoint 3 baseline ([benchmark/checkpoint3_before/report.json](file:///c:/Users/ksr20/OneDrive/Desktop/Brynz/benchmark/checkpoint3_before/report.json)), floor area was inflated to **20.77 m²** because it was calculated from the 2D convex hull of all floor returns along the operator's walking path. In addition, 18 unconstrained wall candidates and 24 spurious openings (10 with negative coordinates) were detected due to lack of orientation filtering.
+2. **Root Cause**: `scipy.spatial.ConvexHull` on cumulative floor points conflated surveyor translation with room boundary; RANSAC lacked orthogonal clustering; gap detection operated on unclipped tangent lines.
+3. **Shipped Fix**: Implemented orthogonal family pairing (`src/geometry.py`), 6-criterion geometric wall filtering, analytical wall-intersection polygon extraction (`floor_area_source: "wall_intersections"`), bounded opening validation, and Liang-Barsky parametric segment clipping (`src/floor_plan.py`).
+4. **Observed Results**: Wall candidates reduced from 18 to 7–8 with clean orthogonal azimuths; floor area constrained from 20.77 m² to 4.99 m² (CP3) / 2.53 m² (CP4); true RMS residuals verified at 0.028–0.029 m; negative opening coordinates completely eliminated.
+5. **Physical Ground-Truth Disclaimer**: Physical accuracy gates remain unscored because [benchmark/ground_truth.json](file:///c:/Users/ksr20/OneDrive/Desktop/Brynz/benchmark/ground_truth.json) contains no physical laser/tape measurements.
 
-**Root cause hypothesis**: The gap-detection approach uses a fixed bin width (wall length / 50 bins). For a 4m wall, bins are 8cm wide → can't achieve 2cm resolution.
-
-**Evidence**: In `single_room`, the detected door width was 0.94m vs laser measurement of 0.91m → error = 3cm, failing the gate.
-
-**Fix**: Adaptive bin width scaled to achieve 2cm resolution:
-- `bin_width = max(0.02, wall_length / max_bins)` with `max_bins = wall_length / 0.015`
-- After fix: expected error < 1.5cm → gate pass
-
-**Shipped**: See commit `fix/opening-detection-adaptive-bins` in git history.
+For the full technical root-cause analysis, reproduction commands, and metric comparisons, see [docs/fix_loop.md](file:///c:/Users/ksr20/OneDrive/Desktop/Brynz/docs/fix_loop.md).

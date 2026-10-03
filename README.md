@@ -137,6 +137,8 @@ python benchmark/run_benchmark.py \
     --tier lidar video photo
 ```
 
+> **Benchmark Status**: See [`docs/benchmark_audit.md`](docs/benchmark_audit.md) for the benchmark compliance audit, and [`docs/fix_loop.md`](docs/fix_loop.md) for the reproducible geometry fix loop. Physical accuracy gates remain unscored because `benchmark/ground_truth.json` contains no physical laser/tape measurements.
+
 ---
 
 ## Device Matrix
@@ -150,7 +152,7 @@ python benchmark/run_benchmark.py \
 | iPhone 15 Pro / Pro Max | ✅ | ✅ | ✅ |
 | Any iPhone 15+ (non-Pro) | ❌ | ✅ | ✅ |
 
-**Expected accuracy by tier:**
+**Target accuracy specifications (design goals; physical ground truth unscored):**
 
 | Tier | Wall lengths | Ceiling height | Floor area | Opening widths |
 |------|-------------|----------------|------------|----------------|
@@ -170,5 +172,5 @@ See [`docs/technical_report.md`](docs/technical_report.md)
 
 - **Mirrors / glass**: LiDAR returns are unreliable. Pipeline clips depth to <0.1 confidence.
 - **Low light**: Depth accuracy degrades. Recommend good lighting during capture.
-- **Large rooms (>10m wall)**: Drift accumulation addressed via loop closure in stitcher.
-- **Photo tier scale**: Resolved using vertical extent assumption (2.4m default). Provide `--reference-height` for better accuracy.
+- **Large rooms (>10m wall)**: ARKit odometry is open-loop. Drift is audited via wall residuals (~2.8 cm avg); full pose-graph loop closure is planned for production.
+- **Photo tier scale**: Monocular scale resolved using vertical extent assumption (2.4m default). Provide `--reference-height` for calibrated scaling.

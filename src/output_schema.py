@@ -80,6 +80,63 @@ class OutputSchema:
         },
     ]
 
+    # Tier-specific assumptions disclosing methods and limitations honestly
+    TIER_ASSUMPTIONS = {
+        "lidar": GLOBAL_ASSUMPTIONS,
+        "video": [
+            {
+                "id": "depth_estimation_model",
+                "value": "heuristic_fallback (Depth Anything V2 unavailable)",
+                "status": "FALLBACK_ESTIMATE",
+                "note": "Pretrained monocular depth weights not bundled; uses vertical gradient depth heuristic.",
+            },
+            {
+                "id": "visual_odometry",
+                "value": "ORB 2-view essential matrix recovery",
+                "status": "ESTIMATE",
+                "note": "Visual odometry without IMU fusion or global bundle adjustment.",
+            },
+            {
+                "id": "metric_scale",
+                "value": "vertical_extent -> assumed 2.4m room height",
+                "status": "ASSUMPTION",
+                "note": "Monocular video has scale ambiguity; scaled to typical room height reference.",
+            },
+            {
+                "id": "accuracy_tier",
+                "value": "wall lengths +/-3-5%, ceiling +/-3cm (target spec)",
+                "status": "UNVERIFIED_ESTIMATE",
+                "note": "Heuristic fallback significantly increases uncertainty over LiDAR.",
+            },
+        ],
+        "photo": [
+            {
+                "id": "photo_reconstruction_method",
+                "value": "heuristic_monocular_unprojection (DUSt3R/COLMAP unavailable)",
+                "status": "FALLBACK_ESTIMATE",
+                "note": "DUSt3R weights / COLMAP binary not found; uses frontal unprojection with heuristic depth.",
+            },
+            {
+                "id": "camera_poses",
+                "value": "frontal_view_assumption_with_index_offset",
+                "status": "ASSUMPTION",
+                "note": "No sparse SfM camera poses recovered; images treated as frontal baseline samples.",
+            },
+            {
+                "id": "metric_scale",
+                "value": "vertical_extent -> assumed 2.4m room height",
+                "status": "ASSUMPTION",
+                "note": "No LiDAR or depth sensor; scale normalized to assumed 2.4m ceiling height.",
+            },
+            {
+                "id": "accuracy_tier",
+                "value": "wall lengths +/-8%, area +/-8% (widest confidence tier)",
+                "status": "UNVERIFIED_ESTIMATE",
+                "note": "Floor tier: provides approximate bounds only without metric sensor verification.",
+            },
+        ],
+    }
+
     def build(
         self,
         room_id: str,
@@ -114,7 +171,9 @@ class OutputSchema:
 
         # Default drift audit if not supplied
         if drift_audit is None:
-            drift_audit = _default_drift_audit(geometry)
+            drift_audit = _default_drift_audit(geometry, tier=tier)
+
+        assumptions = self.TIER_ASSUMPTIONS.get(tier, self.GLOBAL_ASSUMPTIONS)
 
         document = {
             "schema_version":   SCHEMA_VERSION,
@@ -122,7 +181,7 @@ class OutputSchema:
             "timestamp":        datetime.now(timezone.utc).isoformat(),
             "tier":             tier,
             "processing_time_s": round(processing_time_s, 2),
-            "assumptions":      self.GLOBAL_ASSUMPTIONS,
+            "assumptions":      assumptions,
             "drift_audit":      drift_audit,
             "rooms": {
                 room_id: room_data
@@ -170,52 +229,71 @@ class OutputSchema:
         return descriptions.get(rule, f"{cls} requires inspection")
 
 
-def _default_drift_audit(geometry: Dict) -> Dict:
+def _default_drift_audit(geometry: Dict, tier: str = "lidar") -> Dict:
     """
-    Trajectory drift assessment based on available evidence.
-
-    CP4 drift analysis:
-    The single_room scan trajectory forms a closed loop (~4m × 3m).
-    We do NOT implement full loop-closure SLAM here (requires ICP or g2o),
-    but we can estimate the drift category from the wall geometry consistency.
-
-    Evidence:
-    - Wall RMS residuals: 0.028–0.029 m (2–3 cm)
-    - 2 orthogonal wall families with consistent normals
-    - Room polygon closes to 4 clean corners
-    - No obvious ghost-wall duplicates
-
-    Conclusion: Drift is present (as with any open-loop odometry) but appears
-    small relative to room scale (~1% of 5 m perimeter = ~5 cm worst case).
-    A full loop-closure correction would require feature-matching between
-    overlapping scan regions, which requires sufficient texture/density.
-    Not implemented in this checkpoint.
+    Trajectory drift assessment based on available evidence and input tier.
     """
     walls = geometry.get("walls", [])
     residuals = [w.get("rms_residual_m", 0) for w in walls if w.get("rms_residual_m")]
     n_walls = len(walls)
     avg_res = float(sum(residuals) / len(residuals)) if residuals else 0.0
 
-    return {
-        "drift_correction_applied": False,
-        "method":                   "none",
-        "rationale": (
-            "Wall plane residuals (avg {:.3f} m) suggest low geometric inconsistency. "
-            "Closed-loop trajectory and {} consistent wall planes observed. "
-            "Full loop-closure (ICP/pose-graph) not implemented. "
-            "Drift estimated < 5 cm for single-room scans based on trajectory scale "
-            "and wall consistency, but this is NOT verified by external ground truth."
-        ).format(avg_res, n_walls),
-        "estimated_drift_category":  _categorise_drift(avg_res, n_walls),
-        "wall_rms_residuals_m":      [round(r, 4) for r in residuals],
-        "avg_wall_residual_m":       round(avg_res, 4),
-        "loop_closure_status":       "not_implemented",
-        "recommendation": (
-            "For production accuracy, implement ICP-based loop closure or "
-            "integrate with a visual SLAM system (e.g. ORB-SLAM3). "
-            "Current results are open-loop odometry only."
-        ),
-    }
+    if tier == "photo":
+        return {
+            "drift_correction_applied": False,
+            "method":                   "not_applicable",
+            "rationale": (
+                "Photo tier operates on independent still photos without continuous "
+                "temporal odometry. Trajectory drift is not applicable; uncalibrated monocular depth "
+                "and scale ambiguity represent the dominant error sources."
+            ),
+            "estimated_drift_category":  "not_applicable_static_photos",
+            "wall_rms_residuals_m":      [round(r, 4) for r in residuals],
+            "avg_wall_residual_m":       round(avg_res, 4),
+            "loop_closure_status":       "not_applicable",
+            "recommendation": (
+                "For metric accuracy, provide multi-view overlap for SfM (COLMAP/DUSt3R) "
+                "or capture with LiDAR tier."
+            ),
+        }
+    elif tier == "video":
+        return {
+            "drift_correction_applied": False,
+            "method":                   "open_loop_visual_odometry",
+            "rationale": (
+                "Open-loop frame-to-frame ORB feature tracking and essential matrix pose recovery. "
+                "Scale drift and rotational accumulation occur without loop closure or bundle adjustment."
+            ),
+            "estimated_drift_category":  "moderate_to_high_monocular_drift",
+            "wall_rms_residuals_m":      [round(r, 4) for r in residuals],
+            "avg_wall_residual_m":       round(avg_res, 4),
+            "loop_closure_status":       "not_implemented",
+            "recommendation": (
+                "Implement full visual SLAM (ORB-SLAM3 / DROID-SLAM) with loop closure "
+                "and bundle adjustment for production monocular video."
+            ),
+        }
+    else:
+        return {
+            "drift_correction_applied": False,
+            "method":                   "none",
+            "rationale": (
+                "Wall plane residuals (avg {:.3f} m) suggest low geometric inconsistency. "
+                "Closed-loop trajectory and {} consistent wall planes observed. "
+                "Full loop-closure (ICP/pose-graph) not implemented. "
+                "Drift estimated < 5 cm for single-room scans based on trajectory scale "
+                "and wall consistency, but this is NOT verified by external ground truth."
+            ).format(avg_res, n_walls),
+            "estimated_drift_category":  _categorise_drift(avg_res, n_walls),
+            "wall_rms_residuals_m":      [round(r, 4) for r in residuals],
+            "avg_wall_residual_m":       round(avg_res, 4),
+            "loop_closure_status":       "not_implemented",
+            "recommendation": (
+                "For production accuracy, implement ICP-based loop closure or "
+                "integrate with a visual SLAM system (e.g. ORB-SLAM3). "
+                "Current results are open-loop odometry only."
+            ),
+        }
 
 
 def _categorise_drift(avg_residual: float, n_walls: int) -> str:
