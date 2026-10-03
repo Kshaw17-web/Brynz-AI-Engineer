@@ -57,6 +57,7 @@ class RoomScanPipeline:
         self.apply_drift_correction = apply_drift_correction
         self.verbose = verbose
         self.drift_info = None
+        self.depth_info = None
 
         level = logging.DEBUG if verbose else logging.INFO
         logging.basicConfig(
@@ -144,6 +145,7 @@ class RoomScanPipeline:
             processing_time_s=time.time() - t0,
             connected_spaces_graph=connected_spaces_graph,
             drift_info=self.drift_info,
+            depth_info=self.depth_info,
         )
 
         print("[6/6] Writing outputs...")
@@ -173,7 +175,9 @@ class RoomScanPipeline:
                 frame_skip=self.frame_skip,
                 verbose=self.verbose,
             )
-            return processor.load()
+            data = processor.load()
+            self.depth_info = getattr(processor, "depth_info", None)
+            return data
         elif self.tier == "photo":
             from .tiers.photo_processor import PhotoProcessor
             processor = PhotoProcessor(

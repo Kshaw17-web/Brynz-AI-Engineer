@@ -147,6 +147,7 @@ class OutputSchema:
         connected_spaces_graph: Optional[Dict] = None,
         drift_audit: Optional[Dict] = None,
         drift_info: Optional[Dict] = None,
+        depth_info: Optional[Dict] = None,
     ) -> Dict:
         """Build the complete output document."""
 
@@ -174,7 +175,17 @@ class OutputSchema:
         if drift_audit is None:
             drift_audit = _default_drift_audit(geometry, tier=tier, drift_info=drift_info)
 
-        assumptions = self.TIER_ASSUMPTIONS.get(tier, self.GLOBAL_ASSUMPTIONS)
+        raw_assumptions = self.TIER_ASSUMPTIONS.get(tier, self.GLOBAL_ASSUMPTIONS)
+        assumptions = [dict(a) for a in raw_assumptions]
+        if tier == "video" and depth_info and depth_info.get("model_name"):
+            model_name = depth_info["model_name"]
+            is_metric = "Metric" in model_name or "metric" in model_name
+            for a in assumptions:
+                if a.get("id") == "depth_estimation_model":
+                    a["value"] = model_name
+                    if is_metric:
+                        a["status"] = "PRETRAINED_METRIC_MODEL"
+                        a["note"] = f"Monocular metric indoor depth estimation using {model_name}."
 
         document = {
             "schema_version":   SCHEMA_VERSION,

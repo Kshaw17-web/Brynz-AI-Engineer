@@ -43,6 +43,8 @@ class VideoProcessor:
         self.input_path = Path(input_path)
         self.frame_skip = frame_skip
         self.verbose = verbose
+        self.depth_model_name = "heuristic_fallback"
+        self.depth_info = {"model_name": self.depth_model_name}
 
     def load(self) -> Tuple[Dict, Optional[List]]:
         """
@@ -78,7 +80,7 @@ class VideoProcessor:
         
         frames_rgb = [(i, frame) for i, frame in enumerate(frames[::5])]
         
-        return {"xyz": xyz_metric.astype(np.float32), "rgb": rgb.astype(np.uint8)}, frames_rgb
+        return {"xyz": np.asarray(xyz_metric, dtype=np.float32), "rgb": np.asarray(rgb, dtype=np.uint8)}, frames_rgb
 
     def _find_video(self) -> Optional[Path]:
         """Find video file in input directory."""
@@ -116,8 +118,8 @@ class VideoProcessor:
     def _estimate_depths(self, frames: List[np.ndarray]) -> List[np.ndarray]:
         """
         Estimate monocular depth for each frame.
-        Uses Depth Anything V2 if available, otherwise returns a simple
-        heuristic estimate (less accurate).
+        Uses Depth Anything V2 metric indoor model if available, otherwise returns
+        heuristic estimate fallback.
         """
         depths = []
         
@@ -125,12 +127,23 @@ class VideoProcessor:
         depth_model = self._load_depth_model()
         
         if depth_model is not None:
-            logger.info("Using Depth Anything V2 for depth estimation")
+            logger.info(f"Using {self.depth_model_name} for depth estimation")
+            from PIL import Image
+            import torch
             for i, frame in enumerate(frames):
-                if i % 20 == 0:
-                    logger.info(f"  Estimating depth: {i}/{len(frames)}")
-                depth = depth_model.infer_image(frame)
-                depths.append(depth)
+                if i % 10 == 0 or i == len(frames) - 1:
+                    logger.info(f"  Estimating depth: {i+1}/{len(frames)}")
+                if hasattr(depth_model, "infer_image"):
+                    depth = depth_model.infer_image(frame)
+                else:
+                    # Hugging Face depth-estimation pipeline
+                    with torch.no_grad():
+                        out = depth_model(Image.fromarray(frame))
+                    depth = out["predicted_depth"].squeeze().cpu().numpy()
+                depths.append(depth.astype(np.float32))
+            del depth_model
+            import gc
+            gc.collect()
         else:
             logger.warning("No depth model available — using heuristic depth estimation")
             for frame in frames:
@@ -140,9 +153,21 @@ class VideoProcessor:
         return depths
 
     def _load_depth_model(self):
-        """Try to load Depth Anything V2."""
+        """Try to load Depth Anything V2 metric indoor model via transformers, then local fallback."""
+        # 1. Try official Hugging Face metric indoor model
         try:
-            # Try the depth_anything_v2 package
+            from transformers import pipeline
+            model_id = "depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf"
+            logger.info(f"Loading pretrained metric indoor depth model: {model_id}")
+            pipe = pipeline(task="depth-estimation", model=model_id)
+            self.depth_model_name = model_id
+            self.depth_info = {"model_name": self.depth_model_name}
+            return pipe
+        except Exception as e:
+            logger.warning(f"Could not load Hugging Face metric depth model: {e}")
+
+        # 2. Try local checkpoint if bundled
+        try:
             import sys
             depth_anything_path = Path(__file__).parent.parent / "third_party" / "Depth-Anything-V2"
             if depth_anything_path.exists():
@@ -158,17 +183,22 @@ class VideoProcessor:
             model_path = Path(__file__).parent.parent / "models" / "depth_anything_v2_vits.pth"
             if not model_path.exists():
                 logger.warning(f"Depth Anything model not found at {model_path}")
-                logger.info("Run: python scripts/download_models.py to download models")
+                self.depth_model_name = "heuristic_fallback"
+                self.depth_info = {"model_name": self.depth_model_name}
                 return None
             
             device = "cuda" if torch.cuda.is_available() else "cpu"
             model = DepthAnythingV2(**model_configs["vits"])
             model.load_state_dict(torch.load(str(model_path), map_location="cpu"))
             model = model.to(device).eval()
+            self.depth_model_name = "depth_anything_v2_vits (local)"
+            self.depth_info = {"model_name": self.depth_model_name}
             return model
             
         except Exception as e:
             logger.warning(f"Could not load Depth Anything V2: {e}")
+            self.depth_model_name = "heuristic_fallback"
+            self.depth_info = {"model_name": self.depth_model_name}
             return None
 
     def _heuristic_depth(self, rgb: np.ndarray) -> np.ndarray:
