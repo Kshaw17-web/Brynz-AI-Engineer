@@ -42,3 +42,15 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Assessment/sample data
+Applied_AI_Case_Study.pdf
+single_room/*.csv
+single_scan_floor_only/*.csv
+single_scan_with_ceiling/*.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.env
