@@ -126,8 +126,52 @@ class GeometryExtractor:
             xyz_clean, walls, floor_y, ceil_y, room_h
         )
 
+        # 5b. Clip walls to room polygon to produce finite boundary segments
+        poly_pts = polygon_result.get("polygon", [])
+        if len(poly_pts) >= 3:
+            from .floor_plan import _wall_to_clipped_segment
+            poly_np = np.array(poly_pts, dtype=float)
+            for wall in walls:
+                wall["raw_start_xz"] = wall["start_xz"]
+                wall["raw_end_xz"]   = wall["end_xz"]
+                wall["raw_length_m"] = wall["length_m"]
+                seg = _wall_to_clipped_segment(wall, poly_np)
+                if seg is not None:
+                    s, e = seg
+                    wall["start_xz"] = [round(float(s[0]), 4), round(float(s[1]), 4)]
+                    wall["end_xz"]   = [round(float(e[0]), 4), round(float(e[1]), 4)]
+                    wall["length_m"] = round(float(np.linalg.norm(e - s)), 4)
+                    wall["finite_segment"] = {
+                        "start_xz": wall["start_xz"],
+                        "end_xz":   wall["end_xz"],
+                        "length_m": wall["length_m"],
+                        "clipped_to_room_polygon": True,
+                    }
+                else:
+                    wall["finite_segment"] = {
+                        "start_xz": wall["start_xz"],
+                        "end_xz":   wall["end_xz"],
+                        "length_m": wall["length_m"],
+                        "clipped_to_room_polygon": False,
+                    }
+
         # 6. Confidence intervals
         ci = self._compute_ci(xyz_clean, walls, floor_y, ceil_y, ceil_ok, polygon_result)
+
+        # 7. Multi-space diagnostic: floor bbox vs polygon area
+        floor_pts_xz = xyz_clean[xyz_clean[:, 1] < floor_y + 0.15][:, [0, 2]]
+        if len(floor_pts_xz) > 10:
+            fp_bbox = float(
+                (floor_pts_xz[:, 0].max() - floor_pts_xz[:, 0].min()) *
+                (floor_pts_xz[:, 1].max() - floor_pts_xz[:, 1].min())
+            )
+        else:
+            fp_bbox = 0.0
+        poly_area = float(polygon_result["area_m2"])
+        bbox_ratio = round(fp_bbox / max(0.1, poly_area), 2)
+        debug["floor_bbox_m2"]         = round(fp_bbox, 2)
+        debug["bbox_polygon_ratio"]    = bbox_ratio
+        debug["orthogonal_families_deg"] = debug.get("azimuth_families_deg", [])
 
         return {
             "ceiling_height_m":          round(float(room_h), 4),
@@ -691,44 +735,51 @@ class GeometryExtractor:
         floor_y: float, ceil_y: float, room_h: float
     ) -> List[Dict]:
         """
-        Conservative opening detection.
-        Only report an opening if:
-        - Gap width is physically plausible (0.6m – 3.0m)
-        - Gap has VERY low point density (< 5% of wall density)
-        - The gap opens at floor level (door) or has a plausible sill (window)
-        - At least 3 consecutive empty bins in the 2D density histogram
-        Otherwise: report the wall as having "no detected openings".
+        Conservative opening detection. CP4 changes:
+        - At most ONE opening per wall (the strongest gap only)
+        - Wall must be >= 1.5m long (a door cannot fit in a 0.6m wall)
+        - along_wall_start_m and along_wall_end_m now included for rendering
+        - If only frame-skipped data available, we may have too few pts;
+          in that case the wall is still checked but opening suppressed if < 50 pts
+        An opening is NOT reported if:
+        - Evidence is only absent-sampling (frame skip artefact)
+        - Wall is too short relative to the gap width
         """
         openings = []
         opening_id = 0
 
+        # Minimum wall length to attempt opening detection
+        MIN_WALL_FOR_OPENING_M = 1.5
+
         for wall in walls:
+            wall_len = float(wall.get("length_m", 0))
+            if wall_len < MIN_WALL_FOR_OPENING_M:
+                continue
+
             normal  = np.array(wall["normal_xz"])
             tangent = np.array(wall["tangent_xz"])
-            wall_d  = wall["wall_d"]
+            wall_d  = float(wall["wall_d"])
 
-            # Points near this wall (10 cm band)
-            dist = np.abs(xyz[:, 0] * normal[0] + xyz[:, 2] * normal[1] - wall_d)
-            in_height = (xyz[:, 1] > floor_y) & (xyz[:, 1] < ceil_y)
-            pts = xyz[dist < 0.12 & in_height] if False else xyz[dist < 0.12][in_height[dist < 0.12]]
-
-            # Fix: proper indexing
-            near_mask = (np.abs(xyz[:, 0] * normal[0] + xyz[:, 2] * normal[1] - wall_d) < 0.12)
+            # Points in 12 cm band around wall, between floor and ceiling
+            near_mask   = np.abs(xyz[:, 0] * normal[0] + xyz[:, 2] * normal[1] - wall_d) < 0.12
             height_mask = (xyz[:, 1] > floor_y) & (xyz[:, 1] < ceil_y)
             pts = xyz[near_mask & height_mask]
 
-            if len(pts) < 30:
+            if len(pts) < 50:
                 continue
 
             along = pts[:, 0] * tangent[0] + pts[:, 2] * tangent[1]
             vert  = pts[:, 1]
 
-            # 10cm-wide bins along wall
-            wall_len  = wall["length_m"]
-            n_bins_h  = max(6, min(40, int(wall_len / 0.10)))
-            n_bins_v  = 10
+            # 10 cm-wide bins along wall; clamp to wall's actual data range
             a_lo, a_hi = along.min(), along.max()
-            H, xe, ye  = np.histogram2d(
+            actual_span = a_hi - a_lo
+            if actual_span < 0.5:
+                continue
+
+            n_bins_h = max(6, min(40, int(actual_span / 0.10)))
+            n_bins_v = 10
+            H, xe, ye = np.histogram2d(
                 along, vert, bins=[n_bins_h, n_bins_v],
                 range=[[a_lo, a_hi], [floor_y, ceil_y]]
             )
@@ -737,45 +788,79 @@ class GeometryExtractor:
             if col_den.max() == 0:
                 continue
 
-            wall_mean_density = float(col_den.mean())
-            # Only mark as gap if density < 5% of wall mean (very strict)
-            gap_thresh = wall_mean_density * 0.05
+            wall_mean_density = float(col_den[col_den > 0].mean())   # use non-zero bins
+            gap_thresh = wall_mean_density * 0.04   # 4% of mean (strict)
             is_gap = col_den < gap_thresh
-            bin_w  = (a_hi - a_lo) / n_bins_h
+            bin_w  = actual_span / n_bins_h
 
+            # Collect all candidate gaps, then pick the best one
+            candidates = []
             for gs, ge in self._runs(is_gap):
-                # Must be at least 3 consecutive empty bins
-                if (ge - gs + 1) < 3:
+                if (ge - gs + 1) < 3:          # need >= 3 consecutive empty bins
                     continue
                 width_m = (ge - gs + 1) * bin_w
                 if not (0.6 <= width_m <= 3.0):
                     continue
 
-                # Vertical evidence: check if gap extends from floor
+                # Require gap width < 60% of wall length (not an entire-wall absence)
+                if width_m > wall_len * 0.60:
+                    continue
+
+                # Vertical: check how much of the gap is empty
                 gap_vert = H[gs:ge+1, :].sum(axis=0)
                 empty_rows = np.where(gap_vert < gap_thresh * (ge - gs + 1))[0]
                 if len(empty_rows) == 0:
                     continue
 
-                v_lo = floor_y + empty_rows[0]  * room_h / n_bins_v
-                v_hi = floor_y + (empty_rows[-1]+1) * room_h / n_bins_v
+                v_lo = floor_y + empty_rows[0] * room_h / n_bins_v
+                v_hi = floor_y + (empty_rows[-1] + 1) * room_h / n_bins_v
                 open_h = v_hi - v_lo
-                if open_h < 0.6:
+                if open_h < 0.60:
                     continue
 
+                # Score: prefer wider, floor-level gaps
                 at_floor = (v_lo - floor_y) < 0.30
-                openings.append({
-                    "id":             f"opening_{opening_id:02d}",
-                    "type":           "door" if at_floor else "window",
-                    "wall_id":        wall["id"],
-                    "width_m":        round(width_m, 3),
-                    "width_ci_m":     round(bin_w, 3),
-                    "height_m":       round(open_h, 3),
-                    "sill_height_m":  round(max(0., v_lo - floor_y), 3),
-                    "confidence":     "low",
-                    "note":           "Requires verification. May be sparse depth rather than actual opening."
+                score = width_m * (2.0 if at_floor else 1.0)
+
+                # along_wall position (relative to wall start_xz)
+                s_xz = np.array(wall["start_xz"])
+                along_s_wall = float(s_xz @ tangent)
+                pos_start = float(xe[gs] - along_s_wall)
+                pos_end   = float(xe[ge + 1] - along_s_wall)
+
+                candidates.append({
+                    "score":    score,
+                    "width_m":  round(width_m, 3),
+                    "bin_w":    round(bin_w, 3),
+                    "open_h":   round(open_h, 3),
+                    "v_lo":     v_lo,
+                    "at_floor": at_floor,
+                    "pos_start": round(pos_start, 3),
+                    "pos_end":   round(pos_end, 3),
                 })
-                opening_id += 1
+
+            if not candidates:
+                continue
+
+            # Keep only the highest-scoring gap per wall
+            best = max(candidates, key=lambda c: c["score"])
+            openings.append({
+                "id":                  f"opening_{opening_id:02d}",
+                "type":               "door" if best["at_floor"] else "window",
+                "wall_id":             wall["id"],
+                "width_m":             best["width_m"],
+                "width_ci_m":          best["bin_w"],
+                "height_m":            best["open_h"],
+                "sill_height_m":       round(max(0., best["v_lo"] - floor_y), 3),
+                "along_wall_start_m":  best["pos_start"],
+                "along_wall_end_m":    best["pos_end"],
+                "confidence":          "low",
+                "note":               (
+                    "Opening evidence: density gap in 2D histogram. "
+                    "Requires field verification. May be sparse sampling artefact."
+                ),
+            })
+            opening_id += 1
 
         logger.info(f"  Openings (conservative): {len(openings)}")
         return openings

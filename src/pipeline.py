@@ -73,6 +73,21 @@ class RoomScanPipeline:
         geometry = geom_extractor.extract(point_cloud)
         self._print_geometry(geometry)
 
+        # Connected space segmentation (CP4)
+        connected_spaces_graph = None
+        try:
+            from .connected_spaces import ConnectedSpaceSegmenter
+            segmenter = ConnectedSpaceSegmenter()
+            cs_graph  = segmenter.segment(
+                geometry, xyz=point_cloud["xyz"], session_id=self.input_path.name
+            )
+            connected_spaces_graph = cs_graph.to_dict()
+            status = connected_spaces_graph.get("segmentation_status", "?")
+            n_sp   = connected_spaces_graph.get("n_spaces", 0)
+            print(f"      Spaces:         {n_sp} ({status})")
+        except Exception as _e:
+            logger.debug(f"Connected space segmentation skipped: {_e}")
+
         # Debug visualizations (best-effort)
         try:
             from .debug_visualizer import render_debug
@@ -107,6 +122,7 @@ class RoomScanPipeline:
             damage_regions=damage_regions,
             tier=self.tier,
             processing_time_s=time.time() - t0,
+            connected_spaces_graph=connected_spaces_graph,
         )
 
         print("[6/6] Writing outputs...")
@@ -146,12 +162,16 @@ class RoomScanPipeline:
 
     def _print_geometry(self, geometry: Dict):
         g = geometry
-        src = g.get('floor_area_source', '?')
-        print(f"      Floor area:     {g['floor_area_m2']:.2f} ± {g['floor_area_ci_m2']:.2f} m²  (source: {src})")
-        print(f"      Ceiling height: {g['ceiling_height_m']:.3f} ± {g['ceiling_height_ci_m']:.3f} m  (reliable: {g.get('ceiling_detection_reliable','?')})")
+        src   = g.get('floor_area_source', '?')
+        ratio = g.get('debug', {}).get('bbox_polygon_ratio', '?')
+        multi = ' [MULTI-SPACE?]' if isinstance(ratio, float) and ratio > 3.0 else ''
+        print(f"      Floor area:     {g['floor_area_m2']:.2f} +/- {g['floor_area_ci_m2']:.2f} m2  (source: {src})")
+        print(f"      Ceiling height: {g['ceiling_height_m']:.3f} +/- {g['ceiling_height_ci_m']:.3f} m  (reliable: {g.get('ceiling_detection_reliable','?')})")
         print(f"      Room polygon:   {g.get('room_perimeter_m',0):.2f} m perimeter")
         print(f"      Walls detected: {len(g['walls'])}")
-        print(f"      Openings:       {len(g['openings'])} (conservative)")
+        print(f"      Openings:       {len(g['openings'])} (conservative, unverified)")
+        print(f"      Bbox/polygon:   {ratio}{multi}")
+
 
     def _write_outputs(self, result: Dict):
         # JSON report

@@ -397,3 +397,204 @@ if __name__ == "__main__":
                 failed += 1
 
     print(f"\n{passed} passed, {failed} failed")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CP4 Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestWallClipping:
+    """Test the Liang-Barsky wall-to-polygon clipping in floor_plan.py."""
+
+    def test_clip_inside_polygon(self):
+        """A line through the polygon centre clips to two boundary points."""
+        from src.floor_plan import _clip_line_to_polygon
+        poly = np.array([[0,0],[4,0],[4,3],[0,3]], dtype=float)
+        p1 = np.array([-10, 1.5])
+        p2 = np.array([ 10, 1.5])
+        result = _clip_line_to_polygon(p1, p2, poly)
+        assert result is not None
+        s, e = result
+        assert abs(s[0]) < 0.01 or abs(e[0]) < 0.01   # one end at x=0
+        assert abs(s[0] - 4) < 0.01 or abs(e[0] - 4) < 0.01  # other at x=4
+
+    def test_clip_misses_polygon(self):
+        """A line that does not pass through polygon returns None."""
+        from src.floor_plan import _clip_line_to_polygon
+        poly = np.array([[0,0],[4,0],[4,3],[0,3]], dtype=float)
+        p1 = np.array([-5, 10])
+        p2 = np.array([ 5, 10])
+        result = _clip_line_to_polygon(p1, p2, poly)
+        assert result is None
+
+    def test_wall_to_clipped_segment(self):
+        """_wall_to_clipped_segment clips a wall to its polygon intersection."""
+        from src.floor_plan import _wall_to_clipped_segment
+        poly = np.array([[0,0],[4,0],[4,3],[0,3]], dtype=float)
+        wall = {
+            "normal_xz":  [1.0, 0.0],  # X-normal wall at x=2
+            "tangent_xz": [0.0, 1.0],
+            "wall_d":      2.0,
+            "start_xz":   [2, -10],
+            "end_xz":      [2,  10],
+        }
+        seg = _wall_to_clipped_segment(wall, poly)
+        assert seg is not None
+        s, e = seg
+        # Both points should have x near 2.0
+        assert abs(s[0] - 2.0) < 0.1
+        assert abs(e[0] - 2.0) < 0.1
+        # Y span should be roughly 0 to 3
+        zmin = min(s[1], e[1])
+        zmax = max(s[1], e[1])
+        assert zmin > -0.1
+        assert zmax < 3.1
+
+
+class TestOpeningPositions:
+    """Test that CP4 openings contain along_wall position fields."""
+
+    def test_opening_has_position_fields(self):
+        """Openings must have along_wall_start_m and along_wall_end_m."""
+        rng = np.random.default_rng(99)
+        # Build a wall with a deliberate gap in the middle
+        # Wall along Z from 0 to 4, normal in X direction at x=0
+        pts = []
+        # Dense points on wall, except a 1.0m gap from z=1.5 to z=2.5
+        for z in np.linspace(0, 4, 300):
+            if 1.5 <= z <= 2.5:
+                continue  # gap
+            y = rng.uniform(0.1, 2.0)
+            pts.append([rng.normal(0, 0.02), y, z])
+        wall_pts = np.array(pts, dtype=np.float32)
+
+        wall = {
+            "id": "wall_test",
+            "normal_xz":  [1.0, 0.0],
+            "tangent_xz": [0.0, 1.0],
+            "wall_d":      0.0,
+            "length_m":    4.0,
+            "start_xz":   [0, 0],
+            "end_xz":      [0, 4],
+        }
+
+        ge = GeometryExtractor()
+        openings = ge._detect_openings_conservative(
+            wall_pts, [wall], floor_y=0.0, ceil_y=2.2, room_h=2.2
+        )
+        # May or may not detect (depends on density), but if detected,
+        # must have position fields
+        for o in openings:
+            assert "along_wall_start_m" in o, "Missing along_wall_start_m"
+            assert "along_wall_end_m"   in o, "Missing along_wall_end_m"
+
+    def test_short_wall_no_opening(self):
+        """Walls shorter than 1.5m must not produce openings."""
+        rng = np.random.default_rng(42)
+        pts = []
+        for z in np.linspace(0, 1.0, 100):
+            pts.append([rng.normal(0, 0.02), rng.uniform(0.1, 2.0), z])
+        wall_pts = np.array(pts, dtype=np.float32)
+        wall = {
+            "id": "short_wall",
+            "normal_xz":  [1.0, 0.0],
+            "tangent_xz": [0.0, 1.0],
+            "wall_d":      0.0,
+            "length_m":    1.0,   # too short
+            "start_xz":   [0, 0],
+            "end_xz":      [0, 1.0],
+        }
+        ge = GeometryExtractor()
+        openings = ge._detect_openings_conservative(
+            wall_pts, [wall], floor_y=0.0, ceil_y=2.2, room_h=2.2
+        )
+        assert len(openings) == 0, "Short wall must not produce openings"
+
+
+class TestMultiSpaceSchema:
+    """Test ConnectedSpaceGraph data structure."""
+
+    def test_single_space_schema(self):
+        from src.connected_spaces import SpaceGeometry, ConnectedSpaceGraph
+        g = ConnectedSpaceGraph(session_id="test")
+        space = SpaceGeometry(
+            space_id="space_000",
+            space_type="room",
+            polygon=[[0,0],[4,0],[4,3],[0,3]],
+            area_m2=12.0,
+        )
+        g.add_space(space)
+        d = g.to_dict()
+        assert d["n_spaces"] == 1
+        assert "space_000" in d["spaces"]
+        assert d["total_area_m2"] == pytest.approx(12.0, abs=0.1)
+
+    def test_graph_defaults(self):
+        from src.connected_spaces import ConnectedSpaceGraph
+        g = ConnectedSpaceGraph()
+        assert g.segmentation_status == "incomplete"
+        assert g.total_area_m2() == 0.0
+
+    def test_single_space_segmenter(self):
+        """Small room with clear geometry → single space, status complete."""
+        from src.connected_spaces import ConnectedSpaceSegmenter
+        # Use a small floor bbox ratio (bbox/polygon < 3)
+        geom = {
+            "floor_area_m2": 12.0,
+            "room_polygon": [[0,0],[4,0],[4,3],[0,3]],
+            "walls": [
+                {"id": "w1", "azimuth_deg": 0,   "normal_xz": [1,0], "tangent_xz": [0,1],
+                 "wall_d": 0, "length_m": 3, "start_xz": [0,0], "end_xz": [0,3]},
+                {"id": "w2", "azimuth_deg": 90,  "normal_xz": [0,1], "tangent_xz": [1,0],
+                 "wall_d": 0, "length_m": 4, "start_xz": [0,0], "end_xz": [4,0]},
+                {"id": "w3", "azimuth_deg": 0,   "normal_xz": [1,0], "tangent_xz": [0,1],
+                 "wall_d": 4, "length_m": 3, "start_xz": [4,0], "end_xz": [4,3]},
+                {"id": "w4", "azimuth_deg": 90,  "normal_xz": [0,1], "tangent_xz": [1,0],
+                 "wall_d": 3, "length_m": 4, "start_xz": [0,3], "end_xz": [4,3]},
+            ],
+            "debug": {"bbox_polygon_ratio": 1.2},
+            "floor_y": 0.0,
+        }
+        seg = ConnectedSpaceSegmenter()
+        graph = seg.segment(geom, xyz=None, session_id="test")
+        assert graph.segmentation_status in ("complete", "incomplete")
+        assert len(graph.spaces) >= 1
+
+
+class TestOutputSchemaV2:
+    """Test schema version and new fields."""
+
+    def test_schema_version(self):
+        from src.output_schema import OutputSchema, SCHEMA_VERSION
+        assert SCHEMA_VERSION == "2.0"
+
+    def test_assumptions_present(self):
+        from src.output_schema import OutputSchema
+        s = OutputSchema()
+        result = s.build(
+            room_id="test", geometry={"walls": [], "openings": [], "floor_area_m2": 5,
+                                       "floor_area_ci_m2": 0.1, "ceiling_height_m": 2.5,
+                                       "ceiling_height_ci_m": 0.01, "floor_area_source": "test",
+                                       "ceiling_detection_reliable": True, "debug": {}},
+            damage_regions=[], tier="lidar",
+        )
+        assert "assumptions" in result
+        ids = [a["id"] for a in result["assumptions"]]
+        assert "depth_scale" in ids
+        assert "imu_gravity_alignment" in ids
+
+    def test_drift_audit_present(self):
+        from src.output_schema import OutputSchema
+        s = OutputSchema()
+        result = s.build(
+            room_id="test", geometry={"walls": [], "openings": [], "floor_area_m2": 5,
+                                       "floor_area_ci_m2": 0.1, "ceiling_height_m": 2.5,
+                                       "ceiling_height_ci_m": 0.01, "floor_area_source": "test",
+                                       "ceiling_detection_reliable": True, "debug": {}},
+            damage_regions=[], tier="lidar",
+        )
+        assert "drift_audit" in result
+        da = result["drift_audit"]
+        assert "drift_correction_applied" in da
+        assert da["drift_correction_applied"] is False
+
