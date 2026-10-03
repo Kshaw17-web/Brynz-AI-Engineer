@@ -445,7 +445,11 @@ def render_multi_space_plan(
     all_pts = []
     for idx, (space_id, geom) in enumerate(spaces.items()):
         color = SPACE_COLORS[idx % len(SPACE_COLORS)]
-        polygon_raw = geom.get("room_polygon") or geom.get("footprint_polygon", [])
+        polygon_raw = (
+            geom.get("room_polygon")
+            or geom.get("footprint_polygon")
+            or geom.get("polygon", [])
+        )
         polygon = np.array(polygon_raw, dtype=float) if len(polygon_raw) >= 3 else np.zeros((0, 2))
 
         r = FloorPlanRenderer(output_path, space_id)
@@ -458,7 +462,7 @@ def render_multi_space_plan(
         if len(polygon) >= 3:
             all_pts.append(polygon)
             cx, cz = polygon[:, 0].mean(), polygon[:, 1].mean()
-            area   = geom.get("floor_area_m2", 0)
+            area   = geom.get("floor_area_m2") if geom.get("floor_area_m2") is not None else geom.get("area_m2", 0)
             h      = geom.get("ceiling_height_m", 0)
             n_w    = len(geom.get("walls", []))
             ax.text(cx, cz,

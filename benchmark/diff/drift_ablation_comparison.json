@@ -1,0 +1,222 @@
+{
+  "title": "LiDAR Trajectory Drift Correction Ablation (ON vs OFF)",
+  "timestamp": "2026-10-03 18:39:30",
+  "datasets": {
+    "single_room": {
+      "floor_area_m2": {
+        "off": 6.804,
+        "on": 6.804,
+        "delta": 0.0
+      },
+      "floor_area_ci_m2": {
+        "off": 0.194,
+        "on": 0.194,
+        "delta": 0.0
+      },
+      "ceiling_height_m": {
+        "off": 2.127,
+        "on": 2.127,
+        "delta": 0.0
+      },
+      "ceiling_height_ci_m": {
+        "off": 0.009,
+        "on": 0.009,
+        "delta": 0.0
+      },
+      "wall_count": {
+        "off": 7,
+        "on": 7,
+        "delta": 0
+      },
+      "opening_count": {
+        "off": 3,
+        "on": 3,
+        "delta": 0
+      },
+      "room_space_count": {
+        "off": 1,
+        "on": 1,
+        "delta": 0
+      },
+      "adjacency_count": {
+        "off": 0,
+        "on": 0,
+        "delta": 0
+      },
+      "drift_correction_applied": {
+        "off": false,
+        "on": false,
+        "delta": 0
+      },
+      "drift_method": {
+        "off": "none",
+        "on": "none",
+        "changed": false
+      },
+      "loop_closure_status": {
+        "off": "open_loop_disabled",
+        "on": "open_trajectory_unclosed",
+        "changed": true
+      },
+      "loop_closure_pre_residual_m": {
+        "off": 3.1791,
+        "on": 3.1791,
+        "delta": 0.0
+      },
+      "loop_closure_post_residual_m": {
+        "off": 3.1791,
+        "on": 3.1791,
+        "delta": 0.0
+      },
+      "trajectory_length_m": {
+        "off": 14.488,
+        "on": 14.488,
+        "delta": 0.0
+      }
+    },
+    "single_scan_floor_only": {
+      "floor_area_m2": {
+        "off": 18.153,
+        "on": 15.704,
+        "delta": -2.449
+      },
+      "floor_area_ci_m2": {
+        "off": 0.36,
+        "on": 0.337,
+        "delta": -0.023
+      },
+      "ceiling_height_m": {
+        "off": 3.935,
+        "on": 3.864,
+        "delta": -0.071
+      },
+      "ceiling_height_ci_m": {
+        "off": 0.01,
+        "on": 0.01,
+        "delta": 0.0
+      },
+      "wall_count": {
+        "off": 8,
+        "on": 8,
+        "delta": 0
+      },
+      "opening_count": {
+        "off": 3,
+        "on": 4,
+        "delta": 1
+      },
+      "room_space_count": {
+        "off": 5,
+        "on": 4,
+        "delta": -1
+      },
+      "adjacency_count": {
+        "off": 4,
+        "on": 3,
+        "delta": -1
+      },
+      "drift_correction_applied": {
+        "off": false,
+        "on": true,
+        "delta": 1
+      },
+      "drift_method": {
+        "off": "none",
+        "on": "linear_trajectory_loop_closure",
+        "changed": true
+      },
+      "loop_closure_status": {
+        "off": "open_loop_disabled",
+        "on": "applied_closed_loop",
+        "changed": true
+      },
+      "loop_closure_pre_residual_m": {
+        "off": 0.1718,
+        "on": 0.1718,
+        "delta": 0.0
+      },
+      "loop_closure_post_residual_m": {
+        "off": 0.1718,
+        "on": 0.0,
+        "delta": -0.1718
+      },
+      "trajectory_length_m": {
+        "off": 54.206,
+        "on": 54.206,
+        "delta": 0.0
+      }
+    },
+    "single_scan_with_ceiling": {
+      "floor_area_m2": {
+        "off": 20.367,
+        "on": 21.048,
+        "delta": 0.681
+      },
+      "floor_area_ci_m2": {
+        "off": 0.365,
+        "on": 0.371,
+        "delta": 0.006
+      },
+      "ceiling_height_m": {
+        "off": 2.126,
+        "on": 2.099,
+        "delta": -0.027
+      },
+      "ceiling_height_ci_m": {
+        "off": 0.006,
+        "on": 0.006,
+        "delta": 0.0
+      },
+      "wall_count": {
+        "off": 8,
+        "on": 8,
+        "delta": 0
+      },
+      "opening_count": {
+        "off": 7,
+        "on": 8,
+        "delta": 1
+      },
+      "room_space_count": {
+        "off": 5,
+        "on": 4,
+        "delta": -1
+      },
+      "adjacency_count": {
+        "off": 4,
+        "on": 3,
+        "delta": -1
+      },
+      "drift_correction_applied": {
+        "off": false,
+        "on": true,
+        "delta": 1
+      },
+      "drift_method": {
+        "off": "none",
+        "on": "linear_trajectory_loop_closure",
+        "changed": true
+      },
+      "loop_closure_status": {
+        "off": "open_loop_disabled",
+        "on": "applied_closed_loop",
+        "changed": true
+      },
+      "loop_closure_pre_residual_m": {
+        "off": 0.389,
+        "on": 0.389,
+        "delta": 0.0
+      },
+      "loop_closure_post_residual_m": {
+        "off": 0.389,
+        "on": 0.0,
+        "delta": -0.389
+      },
+      "trajectory_length_m": {
+        "off": 99.763,
+        "on": 99.763,
+        "delta": 0.0
+      }
+    }
+  }
+}

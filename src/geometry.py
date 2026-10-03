@@ -171,7 +171,8 @@ class GeometryExtractor:
         bbox_ratio = round(fp_bbox / max(0.1, poly_area), 2)
         debug["floor_bbox_m2"]         = round(fp_bbox, 2)
         debug["bbox_polygon_ratio"]    = bbox_ratio
-        debug["orthogonal_families_deg"] = debug.get("azimuth_families_deg", [])
+        if "orthogonal_families_deg" not in debug:
+            debug["orthogonal_families_deg"] = debug.get("azimuth_families_deg", [])
 
         return {
             "ceiling_height_m":          round(float(room_h), 4),
@@ -295,18 +296,42 @@ class GeometryExtractor:
         azimuths = np.array(azimuths)
         debug["n_normal_estimates"] = len(azimuths)
 
-        # ── Stage 1b: Histogram and dominant directions ──────────────────────
+        # ── Stage 1b: Histogram and dominant directions (circular modulo 180°) ────────
         hist, _ = np.histogram(azimuths, bins=self.NORMAL_HIST_BINS, range=(0, 180))
-        hist_s = uniform_filter1d(hist.astype(float), size=5)
-        peaks, _ = find_peaks(hist_s,
-                               height=hist_s.max() * self.NORMAL_PEAK_MIN_FRAC,
-                               distance=self.NORMAL_PEAK_SEP_DEG)
-        if len(peaks) == 0:
-            peaks = np.array([0, 90])
+        hist_s = uniform_filter1d(hist.astype(float), size=5, mode="wrap")
 
-        # Pick top peaks by strength, up to MAX_AZ_FAMILIES
-        top_peaks = peaks[np.argsort(hist_s[peaks])[::-1][:self.MAX_AZ_FAMILIES]]
-        dominant_azs = (top_peaks + 0.5) * (180.0 / self.NORMAL_HIST_BINS)
+        # Circularly wrap histogram before peak detection so boundary peaks at 0°/180° are detected
+        pad = int(self.NORMAL_PEAK_SEP_DEG)
+        hist_wrapped = np.concatenate([hist_s[-pad:], hist_s, hist_s[:pad]])
+        peaks_w, _ = find_peaks(
+            hist_wrapped,
+            height=hist_s.max() * self.NORMAL_PEAK_MIN_FRAC,
+            distance=self.NORMAL_PEAK_SEP_DEG,
+        )
+        peaks = [p - pad for p in peaks_w if 0 <= p - pad < self.NORMAL_HIST_BINS]
+
+        if len(peaks) == 0:
+            dominant_azs = np.array([0.0, 90.0])
+        else:
+            peak_azs = (np.array(peaks) + 0.5) * (180.0 / self.NORMAL_HIST_BINS)
+            peak_heights = hist_s[peaks]
+            order = np.argsort(peak_heights)[::-1]
+            selected_azs = []
+            for idx in order:
+                az = float(peak_azs[idx])
+                # Circular distance modulo 180° to avoid duplicate split peaks across 0°/180°
+                is_far = True
+                for sel_az in selected_azs:
+                    circ_dist = min(abs(az - sel_az), 180.0 - abs(az - sel_az))
+                    if circ_dist < self.NORMAL_PEAK_SEP_DEG:
+                        is_far = False
+                        break
+                if is_far:
+                    selected_azs.append(az)
+                if len(selected_azs) >= self.MAX_AZ_FAMILIES:
+                    break
+            dominant_azs = np.array(selected_azs) if selected_azs else np.array([0.0, 90.0])
+
         debug["raw_dominant_azimuth_deg"] = dominant_azs.tolist()
         logger.info(f"  Raw dominant azimuths: {[round(a,1) for a in dominant_azs]}")
 

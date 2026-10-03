@@ -44,6 +44,7 @@ class RoomScanPipeline:
         confidence_threshold: int = 1,
         room_id: str = "room_001",
         enable_damage: bool = True,
+        apply_drift_correction: bool = True,
         verbose: bool = False,
     ):
         self.input_path = input_path
@@ -53,7 +54,9 @@ class RoomScanPipeline:
         self.confidence_threshold = confidence_threshold
         self.room_id = room_id
         self.enable_damage = enable_damage
+        self.apply_drift_correction = apply_drift_correction
         self.verbose = verbose
+        self.drift_info = None
 
         level = logging.DEBUG if verbose else logging.INFO
         logging.basicConfig(
@@ -102,7 +105,24 @@ class RoomScanPipeline:
 
         print("[3/6] Rendering floor plan...")
         renderer = FloorPlanRenderer(output_path=self.output_path, room_id=self.room_id)
-        floor_plan_path = renderer.render(geometry)
+        if (
+            connected_spaces_graph
+            and connected_spaces_graph.get("n_spaces", 0) > 1
+            and connected_spaces_graph.get("segmentation_status") == "complete"
+        ):
+            try:
+                from .floor_plan import render_multi_space_plan
+                multi_spaces = connected_spaces_graph.get("spaces", {})
+                floor_plan_path = render_multi_space_plan(
+                    multi_spaces,
+                    output_path=self.output_path,
+                    title=f"Floor Plan — {self.room_id} ({len(multi_spaces)} connected spaces)",
+                )
+            except Exception as _me:
+                logger.debug(f"Multi-space floor plan render fallback: {_me}")
+                floor_plan_path = renderer.render(geometry)
+        else:
+            floor_plan_path = renderer.render(geometry)
         print(f"      Saved: {floor_plan_path}")
 
         damage_regions = []
@@ -123,6 +143,7 @@ class RoomScanPipeline:
             tier=self.tier,
             processing_time_s=time.time() - t0,
             connected_spaces_graph=connected_spaces_graph,
+            drift_info=self.drift_info,
         )
 
         print("[6/6] Writing outputs...")
@@ -139,9 +160,12 @@ class RoomScanPipeline:
                 input_path=self.input_path,
                 frame_skip=self.frame_skip,
                 confidence_threshold=self.confidence_threshold,
+                apply_drift_correction=self.apply_drift_correction,
                 verbose=self.verbose,
             )
-            return processor.load()
+            data = processor.load()
+            self.drift_info = getattr(processor, "drift_info", None)
+            return data
         elif self.tier == "video":
             from .tiers.video_processor import VideoProcessor
             processor = VideoProcessor(

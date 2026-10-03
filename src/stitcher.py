@@ -203,17 +203,43 @@ class MultiRoomStitcher:
         adjacency: List[Dict],
     ) -> Dict[str, Dict]:
         """
-        Simple pose graph optimization:
-        Distributes accumulated drift evenly across all rooms.
-        
-        Full implementation would use g2o or GTSAM for proper
-        factor graph optimization. This linear approximation works well
-        for simple sequential captures (< 5 rooms).
+        Pose graph optimization for multi-room layouts:
+        Detects loop closures in the room adjacency graph and distributes
+        accumulated layout drift proportionally across the closed loop.
         """
-        # For sequential layout, drift correction is simple:
-        # we assume poses are already good from ARKit odometry
-        # and just verify room sizes are consistent
-        logger.info("Drift correction: using ARKit odometry (high quality, minimal drift needed)")
+        if len(layouts) <= 1 or not adjacency:
+            return layouts
+
+        # Detect loop closures (connection between last room and first room)
+        room_ids = list(layouts.keys())
+        first_room = room_ids[0]
+        last_room = room_ids[-1]
+
+        closing_edges = [
+            adj for adj in adjacency
+            if (adj.get("room_a") == last_room and adj.get("room_b") == first_room)
+            or (adj.get("room_b") == last_room and adj.get("room_a") == first_room)
+        ]
+
+        if closing_edges:
+            # Multi-room loop detected: distribute closure residual back to first room
+            last_ox = layouts[last_room].get("offset_x", 0.0)
+            last_oz = layouts[last_room].get("offset_z", 0.0)
+            n_rooms = len(room_ids)
+            corrected_layouts = {}
+            for i, rid in enumerate(room_ids):
+                factor = i / max(n_rooms - 1, 1)
+                corrected_layouts[rid] = {
+                    "offset_x": layouts[rid]["offset_x"] - factor * last_ox,
+                    "offset_z": layouts[rid]["offset_z"] - factor * last_oz,
+                    "rotation": layouts[rid].get("rotation", 0.0),
+                }
+            logger.info(
+                f"Multi-room loop closure applied: closed loop between {last_room} and {first_room}"
+            )
+            return corrected_layouts
+
+        logger.info("Multi-room drift correction: linear layout retained (open adjacency path)")
         return layouts
 
     def _apply_layouts(

@@ -146,6 +146,7 @@ class OutputSchema:
         processing_time_s: float = 0.0,
         connected_spaces_graph: Optional[Dict] = None,
         drift_audit: Optional[Dict] = None,
+        drift_info: Optional[Dict] = None,
     ) -> Dict:
         """Build the complete output document."""
 
@@ -171,7 +172,7 @@ class OutputSchema:
 
         # Default drift audit if not supplied
         if drift_audit is None:
-            drift_audit = _default_drift_audit(geometry, tier=tier)
+            drift_audit = _default_drift_audit(geometry, tier=tier, drift_info=drift_info)
 
         assumptions = self.TIER_ASSUMPTIONS.get(tier, self.GLOBAL_ASSUMPTIONS)
 
@@ -229,7 +230,9 @@ class OutputSchema:
         return descriptions.get(rule, f"{cls} requires inspection")
 
 
-def _default_drift_audit(geometry: Dict, tier: str = "lidar") -> Dict:
+def _default_drift_audit(
+    geometry: Dict, tier: str = "lidar", drift_info: Optional[Dict] = None
+) -> Dict:
     """
     Trajectory drift assessment based on available evidence and input tier.
     """
@@ -274,26 +277,77 @@ def _default_drift_audit(geometry: Dict, tier: str = "lidar") -> Dict:
             ),
         }
     else:
-        return {
-            "drift_correction_applied": False,
-            "method":                   "none",
-            "rationale": (
-                "Wall plane residuals (avg {:.3f} m) suggest low geometric inconsistency. "
-                "Closed-loop trajectory and {} consistent wall planes observed. "
-                "Full loop-closure (ICP/pose-graph) not implemented. "
-                "Drift estimated < 5 cm for single-room scans based on trajectory scale "
-                "and wall consistency, but this is NOT verified by external ground truth."
-            ).format(avg_res, n_walls),
-            "estimated_drift_category":  _categorise_drift(avg_res, n_walls),
-            "wall_rms_residuals_m":      [round(r, 4) for r in residuals],
-            "avg_wall_residual_m":       round(avg_res, 4),
-            "loop_closure_status":       "not_implemented",
-            "recommendation": (
-                "For production accuracy, implement ICP-based loop closure or "
-                "integrate with a visual SLAM system (e.g. ORB-SLAM3). "
-                "Current results are open-loop odometry only."
-            ),
-        }
+        if drift_info and drift_info.get("drift_correction_applied"):
+            pre_res = drift_info.get("loop_closure_pre_residual_m", 0.0)
+            post_res = drift_info.get("loop_closure_post_residual_m", 0.0)
+            traj_len = drift_info.get("trajectory_length_m", 0.0)
+            return {
+                "drift_correction_applied": True,
+                "method":                   drift_info.get("method", "linear_trajectory_loop_closure"),
+                "rationale": (
+                    f"Traverse loop-closure correction applied. Closed trajectory loop "
+                    f"detected with {pre_res:.3f} m accumulated drift over {traj_len:.2f} m "
+                    f"total path. Linear traverse correction distributed closure residual "
+                    f"along cumulative path, reducing endpoint residual to {post_res:.4f} m."
+                ),
+                "estimated_drift_category":  "corrected_loop_closure",
+                "wall_rms_residuals_m":      [round(r, 4) for r in residuals],
+                "avg_wall_residual_m":       round(avg_res, 4),
+                "loop_closure_status":       drift_info.get("loop_closure_status", "applied_closed_loop"),
+                "loop_closure_pre_residual_m": pre_res,
+                "loop_closure_post_residual_m": post_res,
+                "trajectory_length_m":       traj_len,
+                "recommendation": (
+                    "Trajectory loop closure applied prior to point cloud unprojection. "
+                    "For non-loop trajectories, capture protocol recommends returning to start doorway."
+                ),
+            }
+        elif drift_info:
+            loop_status = drift_info.get("loop_closure_status", "open_loop_disabled")
+            pre_res = drift_info.get("loop_closure_pre_residual_m")
+            traj_len = drift_info.get("trajectory_length_m")
+            return {
+                "drift_correction_applied": False,
+                "method":                   "none",
+                "rationale": (
+                    f"Wall plane residuals (avg {avg_res:.3f} m) suggest low geometric inconsistency. "
+                    f"Drift correction toggle is OFF or trajectory is unclosed ({loop_status}). "
+                    f"Audited trajectory length: {traj_len} m, endpoint closure gap: {pre_res} m. "
+                    "Open-loop odometry retained without drift correction."
+                ),
+                "estimated_drift_category":  _categorise_drift(avg_res, n_walls),
+                "wall_rms_residuals_m":      [round(r, 4) for r in residuals],
+                "avg_wall_residual_m":       round(avg_res, 4),
+                "loop_closure_status":       loop_status,
+                "loop_closure_pre_residual_m": pre_res,
+                "loop_closure_post_residual_m": pre_res,
+                "trajectory_length_m":       traj_len,
+                "recommendation": (
+                    "Enable --drift-correction to apply trajectory loop closure. "
+                    "Current results reflect open-loop odometry."
+                ),
+            }
+        else:
+            return {
+                "drift_correction_applied": False,
+                "method":                   "none",
+                "rationale": (
+                    "Wall plane residuals (avg {:.3f} m) suggest low geometric inconsistency. "
+                    "Closed-loop trajectory and {} consistent wall planes observed. "
+                    "Full loop-closure (ICP/pose-graph) not implemented. "
+                    "Drift estimated < 5 cm for single-room scans based on trajectory scale "
+                    "and wall consistency, but this is NOT verified by external ground truth."
+                ).format(avg_res, n_walls),
+                "estimated_drift_category":  _categorise_drift(avg_res, n_walls),
+                "wall_rms_residuals_m":      [round(r, 4) for r in residuals],
+                "avg_wall_residual_m":       round(avg_res, 4),
+                "loop_closure_status":       "not_implemented",
+                "recommendation": (
+                    "For production accuracy, implement ICP-based loop closure or "
+                    "integrate with a visual SLAM system (e.g. ORB-SLAM3). "
+                    "Current results are open-loop odometry only."
+                ),
+            }
 
 
 def _categorise_drift(avg_residual: float, n_walls: int) -> str:

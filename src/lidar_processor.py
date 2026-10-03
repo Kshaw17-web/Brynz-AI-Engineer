@@ -14,7 +14,7 @@ Key calibration assumptions (all labelled):
 import csv
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -54,6 +54,9 @@ class LiDARProcessor:
         confidence_threshold: int = DEFAULT_CONFIDENCE_THRESHOLD,
         max_depth_m: float = DEFAULT_MAX_DEPTH_M,
         depth_scale: float = DEPTH_SCALE_ASSUMPTION,
+        apply_drift_correction: bool = True,
+        loop_closure_threshold_m: float = 0.8,
+        min_loop_length_m: float = 3.0,
         verbose: bool = False,
     ):
         self.input_path = Path(input_path)
@@ -61,7 +64,142 @@ class LiDARProcessor:
         self.confidence_threshold = confidence_threshold
         self.max_depth_m = max_depth_m
         self.depth_scale = depth_scale
+        self.apply_drift_correction = apply_drift_correction
+        self.loop_closure_threshold_m = loop_closure_threshold_m
+        self.min_loop_length_m = min_loop_length_m
         self.verbose = verbose
+        self.drift_info: Dict[str, Any] = {
+            "drift_correction_applied": False,
+            "method": "none",
+            "loop_closure_status": "not_run",
+            "trajectory_length_m": 0.0,
+            "loop_closure_pre_residual_m": 0.0,
+            "loop_closure_post_residual_m": 0.0,
+        }
+
+    def _apply_trajectory_drift_correction(
+        self, poses: Dict[int, Dict]
+    ) -> Tuple[Dict[int, Dict], Dict[str, Any]]:
+        """
+        Deterministic linear trajectory loop closure (traverse closure / Bowditch rule).
+
+        If the trajectory forms a closed loop (start-to-end distance <= loop_closure_threshold_m
+        and total path length >= min_loop_length_m), the closure gap:
+            delta_t = t_end - t_start
+        is distributed linearly along the cumulative traveled distance:
+            t'_k = t_k - (s_k / total_length) * delta_t
+
+        This guarantees t'_0 == t_0 and t'_{end} == t_0, eliminating accumulated
+        translational drift across the loop before unprojection into world coordinates.
+        """
+        if len(poses) < 2:
+            return poses, {
+                "drift_correction_applied": False,
+                "method": "none",
+                "loop_closure_status": "insufficient_poses",
+                "trajectory_length_m": 0.0,
+                "loop_closure_pre_residual_m": 0.0,
+                "loop_closure_post_residual_m": 0.0,
+            }
+
+        sorted_frames = sorted(poses.keys())
+        translations = np.array(
+            [[poses[f]["x"], poses[f]["y"], poses[f]["z"]] for f in sorted_frames],
+            dtype=np.float64,
+        )
+
+        deltas = np.diff(translations, axis=0)
+        step_dists = np.linalg.norm(deltas, axis=1)
+        cum_dists = np.concatenate([[0.0], np.cumsum(step_dists)])
+        total_length = float(cum_dists[-1])
+
+        t_start = translations[0]
+        t_end = translations[-1]
+        closure_gap_vec = t_end - t_start
+        pre_residual = float(np.linalg.norm(closure_gap_vec))
+
+        if pre_residual <= self.loop_closure_threshold_m and total_length >= self.min_loop_length_m:
+            factors = (cum_dists / max(total_length, 1e-6))[:, np.newaxis]
+            corrected_translations = translations - factors * closure_gap_vec
+            post_residual = float(
+                np.linalg.norm(corrected_translations[-1] - corrected_translations[0])
+            )
+
+            corrected_poses = {}
+            for i, f in enumerate(sorted_frames):
+                new_pose = dict(poses[f])
+                new_pose["x"] = float(corrected_translations[i, 0])
+                new_pose["y"] = float(corrected_translations[i, 1])
+                new_pose["z"] = float(corrected_translations[i, 2])
+                corrected_poses[f] = new_pose
+
+            drift_info = {
+                "drift_correction_applied": True,
+                "method": "linear_trajectory_loop_closure",
+                "loop_closure_status": "applied_closed_loop",
+                "trajectory_length_m": round(total_length, 3),
+                "loop_closure_pre_residual_m": round(pre_residual, 4),
+                "loop_closure_post_residual_m": round(post_residual, 4),
+                "n_poses_corrected": len(sorted_frames),
+            }
+            logger.info(
+                f"Trajectory loop closure applied: {pre_residual:.3f} m drift corrected to "
+                f"{post_residual:.4f} m over {total_length:.2f} m path ({len(sorted_frames)} poses)"
+            )
+            return corrected_poses, drift_info
+        else:
+            status = (
+                "open_trajectory_unclosed"
+                if pre_residual > self.loop_closure_threshold_m
+                else "path_too_short"
+            )
+            drift_info = {
+                "drift_correction_applied": False,
+                "method": "none",
+                "loop_closure_status": status,
+                "trajectory_length_m": round(total_length, 3),
+                "loop_closure_pre_residual_m": round(pre_residual, 4),
+                "loop_closure_post_residual_m": round(pre_residual, 4),
+                "n_poses_corrected": 0,
+            }
+            logger.info(
+                f"Trajectory drift correction skipped ({status}): gap={pre_residual:.3f} m, "
+                f"length={total_length:.2f} m"
+            )
+            return poses, drift_info
+
+    def _audit_unmitigated_drift(
+        self, poses: Dict[int, Dict]
+    ) -> Dict[str, Any]:
+        """Audit trajectory drift without applying correction (OFF path)."""
+        if len(poses) < 2:
+            return {
+                "drift_correction_applied": False,
+                "method": "none",
+                "loop_closure_status": "insufficient_poses",
+                "trajectory_length_m": 0.0,
+                "loop_closure_pre_residual_m": 0.0,
+                "loop_closure_post_residual_m": 0.0,
+            }
+
+        sorted_frames = sorted(poses.keys())
+        translations = np.array(
+            [[poses[f]["x"], poses[f]["y"], poses[f]["z"]] for f in sorted_frames],
+            dtype=np.float64,
+        )
+        deltas = np.diff(translations, axis=0)
+        total_length = float(np.sum(np.linalg.norm(deltas, axis=1)))
+        closure_gap = float(np.linalg.norm(translations[-1] - translations[0]))
+
+        return {
+            "drift_correction_applied": False,
+            "method": "none",
+            "loop_closure_status": "open_loop_disabled",
+            "trajectory_length_m": round(total_length, 3),
+            "loop_closure_pre_residual_m": round(closure_gap, 4),
+            "loop_closure_post_residual_m": round(closure_gap, 4),
+            "n_poses_corrected": 0,
+        }
 
     def load(self) -> Tuple[Dict, List]:
         """
@@ -74,6 +212,11 @@ class LiDARProcessor:
 
         logger.info("Loading odometry...")
         poses = self._load_odometry()
+
+        if self.apply_drift_correction:
+            poses, self.drift_info = self._apply_trajectory_drift_correction(poses)
+        else:
+            self.drift_info = self._audit_unmitigated_drift(poses)
 
         logger.info("Loading depth + confidence frames...")
         depth_dir  = self.input_path / "depth"

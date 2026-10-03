@@ -75,6 +75,18 @@ def main():
         help="Disable damage detection"
     )
     parser.add_argument(
+        "--drift-correction",
+        action="store_true",
+        default=True,
+        help="Enable trajectory drift correction / loop closure (default: True)"
+    )
+    parser.add_argument(
+        "--no-drift-correction",
+        action="store_false",
+        dest="drift_correction",
+        help="Disable trajectory drift correction (ablation: open-loop odometry)"
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Verbose output"
@@ -96,6 +108,7 @@ def main():
     print(f"  Input:  {input_path}")
     print(f"  Tier:   {args.tier}")
     print(f"  Output: {output_path}")
+    print(f"  Drift:  {'ON (loop closure enabled)' if args.drift_correction else 'OFF (open-loop odometry)'}")
     print(f"{'='*60}\n")
 
     pipeline = RoomScanPipeline(
@@ -106,6 +119,7 @@ def main():
         confidence_threshold=args.confidence_threshold,
         room_id=args.room_id,
         enable_damage=args.damage,
+        apply_drift_correction=args.drift_correction,
         verbose=args.verbose,
     )
 
