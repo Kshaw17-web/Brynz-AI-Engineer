@@ -10,8 +10,8 @@
 
 ```bash
 # 1. Clone repo
-git clone https://github.com/<your-repo>/brynz-scanner.git
-cd brynz-scanner
+git clone https://github.com/Kshaw17-web/Brynz-AI-Engineer.git
+cd Brynz-AI-Engineer
 
 # 2. Install dependencies (Python 3.10+ required)
 pip install -r requirements.txt
@@ -45,11 +45,13 @@ See [`docs/capture_protocol.md`](docs/capture_protocol.md)
 
 ## Input Tiers
 
-| Tier | Input | Command | Wall Accuracy | Ceiling Accuracy |
-|------|-------|---------|---------------|-----------------|
+| Tier | Input | Command | Target Wall Accuracy (Spec) | Target Ceiling (Spec) |
+|------|-------|---------|-----------------------------|-----------------------|
 | **LiDAR** | Record3D scan (depth + poses) | `--tier lidar` | ±1% | ±1.5cm |
 | **Video** | iPhone walkthrough video | `--tier video` | ±3% | ±3cm |
 | **Photo** | 2–8 room photos | `--tier photo` | ±8% | ±5cm |
+
+*(Target design specifications; physical accuracy benchmarks unscored due to absence of physical ground truth).*
 
 ---
 
@@ -70,10 +72,12 @@ See [`docs/capture_protocol.md`](docs/capture_protocol.md)
 │       └── photo_processor.py  # Photo tier (DUSt3R / COLMAP SfM)
 ├── benchmark/
 │   ├── run_benchmark.py      # Benchmark harness
-│   └── ground_truth.json     # Ground truth measurements (fill in!)
+│   └── ground_truth.json     # Ground truth measurements (null template)
 ├── docs/
 │   ├── capture_protocol.md   # 1-page capture protocol
-│   └── technical_report.md   # 6-page technical report
+│   ├── technical_report.md   # Comprehensive technical report & architecture
+│   ├── benchmark_audit.md    # Empirical benchmark & gate compliance audit
+│   └── fix_loop.md           # Reproducible CP3→CP4 geometry fix loop
 ├── scripts/
 │   └── download_models.py    # Download model weights
 └── requirements.txt
@@ -162,9 +166,12 @@ python benchmark/run_benchmark.py \
 
 ---
 
-## Technical Report
+## Documentation Links
 
-See [`docs/technical_report.md`](docs/technical_report.md)
+- **Technical Report**: [`docs/technical_report.md`](docs/technical_report.md) — Architecture, drift audit, error budget, and device matrix
+- **Benchmark Audit**: [`docs/benchmark_audit.md`](docs/benchmark_audit.md) — Empirical gate compliance and physical measurement audit
+- **Fix Loop**: [`docs/fix_loop.md`](docs/fix_loop.md) — Reproducible root cause analysis and CP3→CP4 geometry fix loop
+- **Capture Protocol**: [`docs/capture_protocol.md`](docs/capture_protocol.md) — One-page iPhone operator guide
 
 ---
 
