@@ -64,7 +64,7 @@ See [`docs/capture_protocol.md`](docs/capture_protocol.md)
 │   ├── lidar_processor.py    # LiDAR depth + pose → point cloud
 │   ├── geometry.py           # RANSAC plane detection → room geometry
 │   ├── floor_plan.py         # Dimensioned floor plan renderer
-│   ├── damage_detector.py    # YOLOv8 damage detection
+│   ├── damage_detector.py    # Damage detection (YOLOv8 when available; heuristic fallback)
 │   ├── stitcher.py           # Multi-room stitching
 │   ├── output_schema.py      # JSON output schema
 │   └── tiers/
@@ -89,7 +89,7 @@ See [`docs/capture_protocol.md`](docs/capture_protocol.md)
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "tier": "lidar",
   "rooms": {
     "room_001": {
@@ -132,16 +132,15 @@ python stitch.py --input stitched_output --output stitched_output/final
 ## Benchmark
 
 ```bash
-# Fill in ground truth first (laser measurements)
-# Edit: benchmark/ground_truth.json
-
-python benchmark/run_benchmark.py \
-    --ground-truth benchmark/ground_truth.json \
-    --datasets . \
-    --tier lidar video photo
+python benchmark/run_benchmark.py --ground-truth benchmark/ground_truth.json
 ```
 
-> **Benchmark Status**: See [`docs/benchmark_audit.md`](docs/benchmark_audit.md) for the benchmark compliance audit, and [`docs/fix_loop.md`](docs/fix_loop.md) for the reproducible geometry fix loop. Physical accuracy gates remain unscored because `benchmark/ground_truth.json` contains no physical laser/tape measurements.
+This processes the supplied LiDAR sample captures:
+- `single_room`
+- `single_scan_floor_only`
+- `single_scan_with_ceiling`
+
+> **Benchmark Status**: See [`docs/benchmark_audit.md`](docs/benchmark_audit.md) for the benchmark compliance audit, and [`docs/fix_loop.md`](docs/fix_loop.md) for the reproducible geometry fix loop. Physical accuracy gates remain NOT SCORED because `benchmark/ground_truth.json` contains no physical laser/tape measurements.
 
 ---
 
@@ -179,5 +178,5 @@ python benchmark/run_benchmark.py \
 
 - **Mirrors / glass**: LiDAR returns are unreliable. Pipeline clips depth to <0.1 confidence.
 - **Low light**: Depth accuracy degrades. Recommend good lighting during capture.
-- **Large rooms (>10m wall)**: ARKit odometry is open-loop. Drift is audited via wall residuals (~2.8 cm avg); full pose-graph loop closure is planned for production.
+- **Trajectory Drift**: Trajectory drift is audited in `drift_audit`. Deterministic translation-only loop-closure correction is applied when a closed trajectory satisfies existing closure conditions; open trajectories are intentionally left uncorrected. Multi-loop rotational correction and full factor-graph SLAM are not implemented.
 - **Photo tier scale**: Monocular scale resolved using vertical extent assumption (2.4m default). Provide `--reference-height` for calibrated scaling.
